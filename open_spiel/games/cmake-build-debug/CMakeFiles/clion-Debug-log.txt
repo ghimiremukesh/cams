@@ -1,0 +1,2354 @@
+/Applications/CLion.app/Contents/bin/cmake/mac/aarch64/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/Applications/CLion.app/Contents/bin/ninja/mac/aarch64/ninja -G Ninja -S /Users/mghimire/Research/Open_Spiel_Tests/open_spiel/open_spiel/games -B /Users/mghimire/Research/Open_Spiel_Tests/open_spiel/open_spiel/games/cmake-build-debug
+CMake Warning (dev) in CMakeLists.txt:
+  No project() command is present.  The top-level CMakeLists.txt file must
+  contain a literal, direct call to the project() command.  Add a line of
+  code such as
+
+    project(ProjectName)
+
+  near the top of the file, but after cmake_minimum_required().
+
+  CMake is pretending there is a "project(Project)" command on the first
+  line.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) in CMakeLists.txt:
+  cmake_minimum_required() should be called prior to this top-level project()
+  call.  Please see the cmake-commands(7) manual for usage documentation of
+  both commands.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- The C compiler identification is AppleClang 15.0.0.15000100
+-- The CXX compiler identification is AppleClang 15.0.0.15000100
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /Library/Developer/CommandLineTools/usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /Library/Developer/CommandLineTools/usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+CMake Warning (dev) in CMakeLists.txt:
+  No cmake_minimum_required command is present.  A line of code such as
+
+    cmake_minimum_required(VERSION 3.27)
+
+  should be added at the top of the file.  The version specified may be lower
+  if you wish to support older CMake versions for this project.  For more
+  information run "cmake --help-policy CMP0000".
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- Configuring done (0.8s)
+CMake Error at CMakeLists.txt:215 (add_library):
+  Cannot find source file:
+
+    bridge/double_dummy_solver/include/dll.h
+
+  Tried extensions .c .C .c++ .cc .cpp .cxx .cu .mpp .m .M .mm .ixx .cppm
+  .ccm .cxxm .c++m .h .hh .h++ .hm .hpp .hxx .in .txx .f .F .for .f77 .f90
+  .f95 .f03 .hip .ispc
+
+
+CMake Error at CMakeLists.txt:277 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:281 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:285 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:291 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:295 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:299 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:303 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:307 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:311 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:315 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:319 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:323 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:327 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:331 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:335 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:340 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:344 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:348 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:353 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:358 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:363 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:367 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:371 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:375 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:380 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:384 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:388 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:392 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:396 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:400 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:404 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:408 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:412 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:416 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:420 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:424 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:429 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:433 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:437 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:441 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:445 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:449 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:453 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:457 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:461 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:465 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:470 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:475 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:479 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:484 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:488 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:492 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:497 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:503 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:507 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:511 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:516 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:521 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:525 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:529 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:533 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:538 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:542 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:547 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:551 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:555 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:559 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:563 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:567 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:571 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:575 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:579 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:583 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:588 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:592 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:596 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:600 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:605 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:610 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:614 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:626 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:630 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:277 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:281 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:285 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:291 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:295 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:299 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:303 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:307 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:311 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:315 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:319 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:323 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:327 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:331 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:335 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:340 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:344 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:348 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:353 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:358 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:363 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:367 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:371 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:375 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:380 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:384 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:388 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:392 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:396 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:400 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:404 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:408 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:412 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:416 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:420 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:424 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:429 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:433 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:437 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:441 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:445 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:449 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:453 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:457 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:461 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:465 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:470 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:475 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:479 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:484 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:488 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:492 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:497 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:503 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:507 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:511 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:516 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:521 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:525 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:529 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:533 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:538 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:542 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:547 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:551 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:555 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:559 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:563 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:567 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:571 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:575 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:579 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:583 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:588 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:592 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:596 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:600 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:605 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:610 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:614 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:626 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:630 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:277 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:281 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:285 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:291 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:295 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:299 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:303 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:307 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:311 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:315 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:319 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:323 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:327 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:331 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:335 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:340 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:344 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:348 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:353 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:358 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:363 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:367 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:371 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:375 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:380 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:384 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:388 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:392 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:396 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:400 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:404 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:408 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:412 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:416 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:420 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:424 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:429 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:433 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:437 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:441 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:445 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:449 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:453 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:457 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:461 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:465 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:470 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:475 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:479 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:484 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:488 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:492 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:497 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:503 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:507 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:511 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:516 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:521 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:525 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:529 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:533 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:538 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:542 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:547 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:551 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:555 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:559 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:563 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:567 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:571 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:575 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:579 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:583 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:588 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:592 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:596 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:600 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:605 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:610 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:614 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:626 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:630 (add_executable):
+  Error evaluating generator expression:
+
+    $<TARGET_OBJECTS:tests>
+
+  Objects of target "tests" referenced but no such target exists.
+
+
+CMake Error at CMakeLists.txt:215 (add_library):
+  No SOURCES given to target: bridge_double_dummy_solver
+
+
+CMake Error at CMakeLists.txt:277 (add_executable):
+  No SOURCES given to target: 2048_test
+
+
+CMake Error at CMakeLists.txt:281 (add_executable):
+  No SOURCES given to target: amazons_test
+
+
+CMake Error at CMakeLists.txt:285 (add_executable):
+  No SOURCES given to target: backgammon_test
+
+
+CMake Error at CMakeLists.txt:291 (add_executable):
+  No SOURCES given to target: bargaining_test
+
+
+CMake Error at CMakeLists.txt:295 (add_executable):
+  No SOURCES given to target: battleship_test
+
+
+CMake Error at CMakeLists.txt:299 (add_executable):
+  No SOURCES given to target: blackjack_test
+
+
+CMake Error at CMakeLists.txt:303 (add_executable):
+  No SOURCES given to target: blotto_test
+
+
+CMake Error at CMakeLists.txt:307 (add_executable):
+  No SOURCES given to target: breakthrough_test
+
+
+CMake Error at CMakeLists.txt:311 (add_executable):
+  No SOURCES given to target: bridge_test
+
+
+CMake Error at CMakeLists.txt:315 (add_executable):
+  No SOURCES given to target: catch_test
+
+
+CMake Error at CMakeLists.txt:319 (add_executable):
+  No SOURCES given to target: checkers_test
+
+
+CMake Error at CMakeLists.txt:323 (add_executable):
+  No SOURCES given to target: chess_test
+
+
+CMake Error at CMakeLists.txt:327 (add_executable):
+  No SOURCES given to target: cliff_walking_test
+
+
+CMake Error at CMakeLists.txt:331 (add_executable):
+  No SOURCES given to target: clobber_test
+
+
+CMake Error at CMakeLists.txt:335 (add_executable):
+  No SOURCES given to target: coin_game_test
+
+
+CMake Error at CMakeLists.txt:340 (add_executable):
+  No SOURCES given to target: colored_trails_board_generator
+
+
+CMake Error at CMakeLists.txt:344 (add_executable):
+  No SOURCES given to target: colored_trails_test
+
+
+CMake Error at CMakeLists.txt:348 (add_executable):
+  No SOURCES given to target: connect_four_test
+
+
+CMake Error at CMakeLists.txt:353 (add_executable):
+  No SOURCES given to target: coop_box_pushing_test
+
+
+CMake Error at CMakeLists.txt:358 (add_executable):
+  No SOURCES given to target: coordinated_mp_test
+
+
+CMake Error at CMakeLists.txt:363 (add_executable):
+  No SOURCES given to target: crazy_eights_test
+
+
+CMake Error at CMakeLists.txt:367 (add_executable):
+  No SOURCES given to target: crowd_modelling_test
+
+
+CMake Error at CMakeLists.txt:371 (add_executable):
+  No SOURCES given to target: crowd_modelling_2d_test
+
+
+CMake Error at CMakeLists.txt:375 (add_executable):
+  No SOURCES given to target: cursor_go_test
+
+
+CMake Error at CMakeLists.txt:380 (add_executable):
+  No SOURCES given to target: dark_chess_test
+
+
+CMake Error at CMakeLists.txt:384 (add_executable):
+  No SOURCES given to target: dark_hex_test
+
+
+CMake Error at CMakeLists.txt:388 (add_executable):
+  No SOURCES given to target: deep_sea_test
+
+
+CMake Error at CMakeLists.txt:392 (add_executable):
+  No SOURCES given to target: dots_and_boxes_test
+
+
+CMake Error at CMakeLists.txt:396 (add_executable):
+  No SOURCES given to target: dynamic_routing_data_test
+
+
+CMake Error at CMakeLists.txt:400 (add_executable):
+  No SOURCES given to target: dynamic_routing_test
+
+
+CMake Error at CMakeLists.txt:404 (add_executable):
+  No SOURCES given to target: dynamic_routing_utils_test
+
+
+CMake Error at CMakeLists.txt:408 (add_executable):
+  No SOURCES given to target: dou_dizhu_test
+
+
+CMake Error at CMakeLists.txt:412 (add_executable):
+  No SOURCES given to target: dou_dizhu_utils_test
+
+
+CMake Error at CMakeLists.txt:416 (add_executable):
+  No SOURCES given to target: efg_game_test
+
+
+CMake Error at CMakeLists.txt:420 (add_executable):
+  No SOURCES given to target: euchre_test
+
+
+CMake Error at CMakeLists.txt:424 (add_executable):
+  No SOURCES given to target: first_sealed_auction_test
+
+
+CMake Error at CMakeLists.txt:429 (add_executable):
+  No SOURCES given to target: garnet_test
+
+
+CMake Error at CMakeLists.txt:433 (add_executable):
+  No SOURCES given to target: gin_rummy_test
+
+
+CMake Error at CMakeLists.txt:437 (add_executable):
+  No SOURCES given to target: go_test
+
+
+CMake Error at CMakeLists.txt:441 (add_executable):
+  No SOURCES given to target: phantom_go_test
+
+
+CMake Error at CMakeLists.txt:445 (add_executable):
+  No SOURCES given to target: goofspiel_test
+
+
+CMake Error at CMakeLists.txt:449 (add_executable):
+  No SOURCES given to target: havannah_test
+
+
+CMake Error at CMakeLists.txt:453 (add_executable):
+  No SOURCES given to target: hearts_test
+
+
+CMake Error at CMakeLists.txt:457 (add_executable):
+  No SOURCES given to target: hex_test
+
+
+CMake Error at CMakeLists.txt:461 (add_executable):
+  No SOURCES given to target: kriegspiel_test
+
+
+CMake Error at CMakeLists.txt:465 (add_executable):
+  No SOURCES given to target: kuhn_poker_test
+
+
+CMake Error at CMakeLists.txt:470 (add_executable):
+  No SOURCES given to target: leduc_poker_test
+
+
+CMake Error at CMakeLists.txt:475 (add_executable):
+  No SOURCES given to target: lewis_signaling_test
+
+
+CMake Error at CMakeLists.txt:479 (add_executable):
+  No SOURCES given to target: liars_dice_test
+
+
+CMake Error at CMakeLists.txt:484 (add_executable):
+  No SOURCES given to target: maedn_test
+
+
+CMake Error at CMakeLists.txt:488 (add_executable):
+  No SOURCES given to target: mancala_test
+
+
+CMake Error at CMakeLists.txt:492 (add_executable):
+  No SOURCES given to target: markov_soccer_test
+
+
+CMake Error at CMakeLists.txt:497 (add_executable):
+  No SOURCES given to target: matching_pennies_3p_test
+
+
+CMake Error at CMakeLists.txt:503 (add_executable):
+  No SOURCES given to target: matrix_games_test
+
+
+CMake Error at CMakeLists.txt:507 (add_executable):
+  No SOURCES given to target: morpion_solitaire_test
+
+
+CMake Error at CMakeLists.txt:511 (add_executable):
+  No SOURCES given to target: negotiation_test
+
+
+CMake Error at CMakeLists.txt:516 (add_executable):
+  No SOURCES given to target: nfg_game_test
+
+
+CMake Error at CMakeLists.txt:521 (add_executable):
+  No SOURCES given to target: nim_test
+
+
+CMake Error at CMakeLists.txt:525 (add_executable):
+  No SOURCES given to target: nine_mens_morris_test
+
+
+CMake Error at CMakeLists.txt:529 (add_executable):
+  No SOURCES given to target: oh_hell_test
+
+
+CMake Error at CMakeLists.txt:533 (add_executable):
+  No SOURCES given to target: oshi_zumo_test
+
+
+CMake Error at CMakeLists.txt:538 (add_executable):
+  No SOURCES given to target: othello_test
+
+
+CMake Error at CMakeLists.txt:542 (add_executable):
+  No SOURCES given to target: oware_test
+
+
+CMake Error at CMakeLists.txt:547 (add_executable):
+  No SOURCES given to target: pathfinding_test
+
+
+CMake Error at CMakeLists.txt:551 (add_executable):
+  No SOURCES given to target: pentago_test
+
+
+CMake Error at CMakeLists.txt:555 (add_executable):
+  No SOURCES given to target: phantom_ttt_test
+
+
+CMake Error at CMakeLists.txt:559 (add_executable):
+  No SOURCES given to target: pig_test
+
+
+CMake Error at CMakeLists.txt:563 (add_executable):
+  No SOURCES given to target: quoridor_test
+
+
+CMake Error at CMakeLists.txt:567 (add_executable):
+  No SOURCES given to target: rbc_test
+
+
+CMake Error at CMakeLists.txt:571 (add_executable):
+  No SOURCES given to target: sheriff_test
+
+
+CMake Error at CMakeLists.txt:575 (add_executable):
+  No SOURCES given to target: skat_test
+
+
+CMake Error at CMakeLists.txt:579 (add_executable):
+  No SOURCES given to target: solitaire_test
+
+
+CMake Error at CMakeLists.txt:583 (add_executable):
+  No SOURCES given to target: stones_and_gems_test
+
+
+CMake Error at CMakeLists.txt:588 (add_executable):
+  No SOURCES given to target: tarok_test
+
+
+CMake Error at CMakeLists.txt:592 (add_executable):
+  No SOURCES given to target: tic_tac_toe_test
+
+
+CMake Error at CMakeLists.txt:596 (add_executable):
+  No SOURCES given to target: laser_tag_test
+
+
+CMake Error at CMakeLists.txt:600 (add_executable):
+  No SOURCES given to target: tiny_bridge_test
+
+
+CMake Error at CMakeLists.txt:605 (add_executable):
+  No SOURCES given to target: tiny_hanabi_test
+
+
+CMake Error at CMakeLists.txt:610 (add_executable):
+  No SOURCES given to target: trade_comm_test
+
+
+CMake Error at CMakeLists.txt:614 (add_executable):
+  No SOURCES given to target: ultimate_tic_tac_toe_test
+
+
+CMake Error at CMakeLists.txt:626 (add_executable):
+  No SOURCES given to target: y_test
+
+
+CMake Error at CMakeLists.txt:630 (add_executable):
+  No SOURCES given to target: hexner_test
+
+
+CMake Generate step failed.  Build files cannot be regenerated correctly.
