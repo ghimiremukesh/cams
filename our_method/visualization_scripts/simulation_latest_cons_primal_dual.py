@@ -1,7 +1,8 @@
 import random
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# quick fix for import issues
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 import flax.core
 import jax
 import matplotlib.pyplot as plt
@@ -722,7 +723,6 @@ if __name__ == '__main__':
             _, infeasible = brt_value(t, curr_state)
 
             if infeasible and t!= 0:
-                # raise ValueError('New state is infeasible! Game Ends!')
                 # flag = jnp.ones(10)
                 print('Infeasibe at: ', t)
             else:
@@ -779,51 +779,5 @@ if __name__ == '__main__':
         import pandas as pd
         df1 = pd.DataFrame(data={'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'p': p_t})
         df1.to_csv(f'cons_primal_dual_type_{p1_type}_{run}.csv')
-        # gt solution
-        # tau = 0.1
-        # A = jnp.eye(4) + jnp.array([[0, 0, tau, 0], [0, 0, 0, tau], [0, 0, 0, 0], [0, 0, 0, 0]])
-        # B = jnp.array([[0.5 * tau ** 2, 0], [0, 0.5 * tau ** 2], [tau, 0], [0, tau]])
-        # Qf = jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
-        # Q = jnp.zeros((4, 4))
-        # dt = 0.1
-        # N = 10
-        # R1 = jnp.array([[0.05, 0], [0, 0.025]]) * tau
-        # R2 = jnp.array([[0.05, 0], [0, 0.1]]) * tau
-        #
-        # K1 = utils_jax.discrete_lqr(A, B, Q, R1, Qf, N)
-        # K2 = utils_jax.discrete_lqr(A, B, Q, R2, Qf, N)
-        #
-        # states_ = jnp.array([-0.5, 0, 1.5, 0, 0.5, 0, -1.5, 0])
-        # p = 0.5
-        # # change index for different time steps
-        #
-        # target = p1_type
-        #
-        # trajs = []
-        # U = []
-        # D = []
-        # trajs.append(states_)
-        # N = 10
-        # for i in range(total_steps, 0, -1):
-        #     if i <= 5:
-        #         p = 0 if target == 0 else 1
-        #     x1 = states_[:4]
-        #     x2 = states_[4:8]
-        #     goal = jnp.array([0, 2 * p - 1, 0, 0]) * jnp.ones_like(p)
-        #     u = -K1[-i] @ (x1 - goal).T
-        #     v = -K2[-i] @ (x2 - goal).T
-        #     states_ = utils_jax.x_next(states_, u, v)
-        #     U.append(u)
-        #     D.append(v)
-        #     trajs.append(states_)
-        #
-        # states = jnp.vstack(trajs)
-        # x1 = states[:, 0]
-        # y1 = states[:, 1]
-        # x2 = states[:, 4]
-        # y2 = states[:, 5]
-        #
-        # axs[0].plot(x1, y1, '--', color='orange', marker='o', markersize=2)
-        # axs[0].plot(x2, y2, '--', color='teal', marker='o', markersize=2)
 
     plt.show()

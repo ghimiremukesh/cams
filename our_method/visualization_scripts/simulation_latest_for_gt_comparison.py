@@ -1,3 +1,8 @@
+import os
+import sys
+# quick fix for import issues
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
 import random
 import jax
 import matplotlib.pyplot as plt
