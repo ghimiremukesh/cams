@@ -1,3 +1,8 @@
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 import random
 import jax
 import matplotlib.pyplot as plt
@@ -299,9 +304,10 @@ if __name__ == '__main__':
         axs[1].set_ylim([-0.1, 1])
         # plt.show()
 
-        import pandas as pd
-        df1 = pd.DataFrame(data={'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'p': p_t})
-        df1.to_csv(f'unconstrained_type_{p1_type}_{run}.csv')
+        # if needed to save
+        # import pandas as pd
+        # df1 = pd.DataFrame(data={'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'p': p_t})
+        # df1.to_csv(f'unconstrained_type_{p1_type}_{run}.csv')
 
         # gt solution
         tau = 0.1
@@ -356,8 +362,8 @@ if __name__ == '__main__':
         axs[0].plot(x1, y1, '--', color='orange', marker='o', markersize=2)
         axs[0].plot(x2, y2, '--', color='teal', marker='o', markersize=2)
 
-        df2 = pd.DataFrame(data={'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'p': p_t})
-        df2.to_csv(f'unconstrained_type_{p1_type}_{run}_gt.csv')
+        # df2 = pd.DataFrame(data={'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'p': p_t})
+        # df2.to_csv(f'unconstrained_type_{p1_type}_{run}_gt.csv')
 
 
     plt.show()

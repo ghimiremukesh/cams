@@ -13,7 +13,7 @@ start=0.1
 end=1
 increment=0.1
 vals=($(seq $start $increment $end))
-for ((t=2; t<10; t++));
+for ((t=0; t<10; t++));
 do
     echo "Collecting data for time-step ${vals[$t]}"
     python collect_data_flax_latest.py --time ${vals[t]}
