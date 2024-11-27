@@ -1,4 +1,4 @@
-### Supplementary Code for the AAAI MARW Workshop"
+### Supplementary Code for the AAAI MARW Workshop
 
 
 1. setup the conda environment using the file `env.yml`
