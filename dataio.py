@@ -4,7 +4,6 @@ import torch
 import numpy as np
 import jax.numpy as jnp
 from torch.utils.data import Dataset, default_collate
-import utils_jax_old
 from jax.tree_util import tree_map
 
 EPS = 1e-6
