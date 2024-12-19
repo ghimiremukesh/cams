@@ -15,7 +15,6 @@ import dataio
 from torch.utils.data import DataLoader
 import training_jax as training
 import jax
-import loss_functions
 import optax
 import os
 import shutil
