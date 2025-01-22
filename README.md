@@ -1,4 +1,4 @@
-### Supplementary Code for ICLR Paper #3245 "Two-Player Zero-Sum Differential Games with One-Sided Information and Continuous Actions"
+### Supplementary Code for "A Scalable Solver for 2p0s Differential Games with One-Sided Payoff Information and Continuous Actions, States, and Time".
 
 
 1. setup the conda environment using the file `env.yml`
