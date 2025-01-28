@@ -60,20 +60,6 @@ def utility_function(state, action, r, p1_type):
 
     return jnp.sum((x1 - goal) ** 2) + 0.25 * jnp.sum(jnp.diag(r) * action ** 2)
 
-def get_exploitability(utility, action_0, action_1, states):
-    # hard code r1 and r2
-    r1 = jnp.array([[0.05, 0.],
-                    [0., 0.025]])
-
-    util_0 = -utility(states[0:2], action_0, r1, 0)
-    util_1 = -utility(states[0:2], action_1, r1, 1)
-    gt_action_0 = jnp.array([0.833, -1.818])
-    gt_action_1 = jnp.array([0.833, 1.818])
-    exploitability_0 = (-utility(states[0:2], gt_action_0, r1, 0) - util_0)
-    exploitability_1 = (-utility(states[0:2], gt_action_1, r1, 1) - util_1)
-
-    return (exploitability_1 + exploitability_0)/2
-
 
 def pseudo_gradient(f, x, key, scale):
     # https://arxiv.org/abs/1703.03864
@@ -117,20 +103,6 @@ def get_nfg_ct_utilities(utility, model, params, states, p1_type, key):
 
     r2 = jnp.array([[0.05, 0],
                     [0., 0.1]])
-
-
-    # for i in range(3):
-    #     p1_action = model.apply(p1_action_nn, p1_state.reshape(-1, ), rngs={'noise': key})
-    #     p2_action = model.apply(p2_action_nn, p2_state.reshape(-1, ), rngs={'noise': key})
-    #     x1 = p1_state[0:2] + p1_state[2:4] * 0.25 + 0.5 * p1_action * 0.25 ** 2
-    #     vx1 = p1_state[2:4] + p1_action * 0.25
-    #     new_p1_state = jnp.hstack((x1, vx1, p1_type))
-    #
-    #     x2 = p2_state[0:2] + p2_state[2:4] * 0.25 + 0.5 * p2_action * 0.25 ** 2
-    #     vx2 = p2_state[2:4] + p2_action * 0.25
-    #     new_p2_state = jnp.hstack((x2, vx2))
-    #
-    #     p1_state, p2_state = new_p1_state, new_p2_state
 
     def step(carry, _):
         p1_state, p2_state, key = carry
@@ -362,13 +334,6 @@ def main():
 
     optimizer = get_optimizer(args)
 
-    # fig, ax_iter = plt.subplots(
-    #     ncols=1,
-    #     sharey=False,
-    #     constrained_layout=True,
-    #     figsize=plt.figaspect(0.4),
-    # )
-
     key = random.key(args.seed)
 
     for solver in ["JPSPG"]:
@@ -394,24 +359,7 @@ def main():
         # print("P1 Type: ", hist['type'][-1])
         # print(hist['type'])
         print("total time: ", end_time - start_time)
-        # print("P1 Action: ", hist['p1_action'][-1])
-        # print("P2 Action: ", hist['p2_action'][-1])
-        # p1_actions = jnp.vstack(hist['p1_actions'])
-        # p2_actions = jnp.vstack(hist['p2_actions'])
-        # p1_types = hist['type']
-        #
-        # print(p1_types)
-        # print(p1_actions)
 
-        # ax_iter.set_title('Actions')
-
-
-    # ax_iter.legend()
-    # ax_runtime.legend(title="solver")
-
-    # ax_iter.set(xlabel="a_x", ylabel="a_y")
-    # ax_runtime.set(xlabel="iterations", ylabel="exploitability")
-    # plt.show()
 
 
 if __name__ == "__main__":
