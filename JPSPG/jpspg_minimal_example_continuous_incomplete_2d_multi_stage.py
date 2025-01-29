@@ -11,7 +11,9 @@ from flax import linen
 import numpy as np
 from flax.training import checkpoints
 import flax
+# from jax_tqdm import scan_tqdm
 from jax.experimental import host_callback as hcb
+# import pdb
 
 flax.config.update('flax_use_orbax_checkpointing', False)
 
@@ -61,6 +63,7 @@ def utility_function(state, action, r, p1_type):
     return jnp.sum((x1 - goal) ** 2) + 0.25 * jnp.sum(jnp.diag(r) * action ** 2)
 
 
+
 def pseudo_gradient(f, x, key, scale):
     # https://arxiv.org/abs/1703.03864
     key, subkey = random.split(key)
@@ -91,8 +94,8 @@ def get_nfg_ct_utilities(utility, model, params, states, p1_type, key):
     # just for 2 players
     p1_action_nn = params[0]
     p2_action_nn = params[1]
-    p1_state = jax.tree_util.tree_map(lambda a, b: jnp.hstack((a, b)), jnp.array(states[0:4]), p1_type)
-    p2_state = jnp.array(states[4:8]).reshape(-1, )
+    p1_state = jax.tree_util.tree_map(lambda a, b: jnp.hstack((a, b)), jnp.array(states), p1_type)
+    p2_state = jnp.array(states).reshape(-1, )
 
     # 4-stage game
     t = 0
@@ -104,42 +107,58 @@ def get_nfg_ct_utilities(utility, model, params, states, p1_type, key):
     r2 = jnp.array([[0.05, 0],
                     [0., 0.1]])
 
+
+    actions = jnp.zeros((3, 2, 2))
     def step(carry, _):
-        p1_state, p2_state, key = carry
+        p1_state, p2_state, key, actions, count = carry
+        # pdb.set_trace()
+        p1_input = jnp.hstack((p1_state.reshape(-1, ), actions.reshape(-1, ))).reshape(-1, )
+        p2_input = jnp.hstack((p2_state.reshape(-1, ), actions.reshape(-1, ))).reshape(-1, )
 
         # Compute actions using the model
-        p1_action = model.apply(p1_action_nn, p1_state.reshape(-1, ), rngs={'noise': key})
-        p2_action = model.apply(p2_action_nn, p2_state.reshape(-1, ), rngs={'noise': key})
+        p1_action = model.apply(p1_action_nn, p1_input, rngs={'noise': key})
+        p2_action = model.apply(p2_action_nn, p2_input.reshape(-1, ), rngs={'noise': key})
+
+        actions = actions.at[count, 0, :].set(p1_action)
+        actions = actions.at[count, 1, :].set(p2_action)
 
         # Update p1 state
         x1 = p1_state[0:2] + p1_state[2:4] * 0.25 + 0.5 * p1_action * 0.25 ** 2
         vx1 = p1_state[2:4] + p1_action * 0.25
-        new_p1_state = jnp.hstack((x1, vx1, p1_type))
+
 
         # Update p2 state
-        x2 = p2_state[0:2] + p2_state[2:4] * 0.25 + 0.5 * p2_action * 0.25 ** 2
-        vx2 = p2_state[2:4] + p2_action * 0.25
-        new_p2_state = jnp.hstack((x2, vx2))
+        x2 = p2_state[4:6] + p2_state[6:8] * 0.25 + 0.5 * p2_action * 0.25 ** 2
+        vx2 = p2_state[6:8] + p2_action * 0.25
+        new_p1_state = jnp.hstack((x1, vx1, x2, vx2, p1_type))
+        new_p2_state = jnp.hstack((x1, vx1, x2, vx2))
 
+        count += 1
         # New carry for next iteration
-        new_carry = (new_p1_state, new_p2_state, key)
+        new_carry = (new_p1_state, new_p2_state, key, actions, count)
+        # pdb.set_trace()
         return new_carry, None
 
     # Initialize carry with starting states and key
-    carry_init = (p1_state, p2_state, key)
+    carry_init = (p1_state, p2_state, key, actions, 0)
 
     # Run lax.scan for 3 iterations
     final_carry, _ = lax.scan(step, carry_init, None, length=3)
 
     # Extract final states after 3 iterations
-    p1_state, p2_state, _ = final_carry
+    p1_state, p2_state, _, _, _ = final_carry
 
-    p1_action = model.apply(p1_action_nn, p1_state.reshape(-1, ), rngs={'noise': key})
-    p2_action = model.apply(p2_action_nn, p2_state.reshape(-1, ), rngs={'noise': key})
 
-    p1_util = utility(p1_state, p1_action, r1, p1_type) # should return both instant. cost and final cost
-    p2_util = utility(p2_state, p2_action, r2, p1_type)
+    p1_input = jnp.hstack((p1_state.reshape(-1, ), actions.reshape(-1, ))).reshape(-1, )
+    p2_input = jnp.hstack((p2_state.reshape(-1, ), actions.reshape(-1, ))).reshape(-1, )
 
+    p1_action = model.apply(p1_action_nn, p1_input.reshape(-1, ), rngs={'noise': key})
+    p2_action = model.apply(p2_action_nn, p2_input.reshape(-1, ), rngs={'noise': key})
+
+    p1_util = utility(p1_state[0:4], p1_action, r1, p1_type) # should return both instant. cost and final cost
+    p2_util = utility(p2_state[4:8], p2_action, r2, p1_type)
+
+    # pdb.set_trace()
     return -jnp.array([p1_util - p2_util, p2_util - p1_util])
 
 class NormalFormCTGame:
@@ -165,8 +184,8 @@ class NormalFormCTGame:
 
     def init_params(self, key):
         keys = random.split(key, 2) # there's always two players
-        p1_dummy_state = jnp.zeros((5, ))
-        p2_dummy_state = jnp.zeros((4, ))
+        p1_dummy_state = jnp.zeros((21, ))
+        p2_dummy_state = jnp.zeros((20, ))
         states = [p1_dummy_state, p2_dummy_state]
 
         return [self.model.init(keys[i], states[i]) for i in range(2)]
@@ -181,75 +200,13 @@ class NormalFormCTGame:
 
         return get_nfg_ct_utilities(self.utility, self.model, params, self.states, self.p1_type, self.noise_key)
 
-    def get_metrics(self, params):
-        p1_state = jnp.hstack((jnp.array(self.states[0:4]), self.p1_type))
-        p2_state = jnp.array(self.states[4:8])
-        p1_action_nn = params[0]
-        p2_action_nn = params[1]
-
-        dt = 0.25
-        # hard code r1 and r2
-        p1_actions = []
-        p2_actions = []
-
-        # for i in range(4):
-        #     p1_action = self.model.apply(p1_action_nn, p1_state.reshape(-1, ), rngs={'noise': self.noise_key})
-        #     p2_action = self.model.apply(p2_action_nn, p2_state.reshape(-1, ), rngs={'noise': self.noise_key})
-        #     x1 = p1_state[0:2] + p1_state[2:4] * 0.25 + 0.5 * p1_action * 0.25 ** 2
-        #     vx1 = p1_state[2:4] + p1_action * 0.25
-        #     new_p1_state = jnp.hstack((x1, vx1, self.p1_type))
-        #
-        #     x2 = p2_state[0:2] + p2_state[2:4] * 0.25 + 0.5 * p2_action * 0.25 ** 2
-        #     vx2 = p2_state[2:4] + p2_action * 0.25
-        #     new_p2_state = jnp.hstack((x2, vx2))
-        #     p1_actions.append(p1_action)
-        #     p2_actions.append(p2_action)
-        #
-        #     p1_state, p2_state = new_p1_state, new_p2_state
-
-        def step(carry, _):
-            # Unpack the carry
-            p1_state, p2_state, noise_key = carry
-
-            # Compute actions using the model
-            p1_action = self.model.apply(p1_action_nn, p1_state.reshape(-1, ), rngs={'noise': noise_key})
-            p2_action = self.model.apply(p2_action_nn, p2_state.reshape(-1, ), rngs={'noise': noise_key})
-
-            # Update p1 state
-            x1 = p1_state[0:2] + p1_state[2:4] * 0.25 + 0.5 * p1_action * 0.25 ** 2
-            vx1 = p1_state[2:4] + p1_action * 0.25
-            new_p1_state = jnp.hstack((x1, vx1, self.p1_type))
-
-            # Update p2 state
-            x2 = p2_state[0:2] + p2_state[2:4] * 0.25 + 0.5 * p2_action * 0.25 ** 2
-            vx2 = p2_state[2:4] + p2_action * 0.25
-            new_p2_state = jnp.hstack((x2, vx2))
-
-            # Prepare the new carry for next iteration
-            new_carry = (new_p1_state, new_p2_state, noise_key)
-
-            # Return the new carry and actions taken in this step
-            return new_carry, (p1_action, p2_action)
-
-        # Initialize the carry with starting states and noise key
-        carry_init = (p1_state, p2_state, self.noise_key)
-
-        # Execute lax.scan for 4 iterations and collect actions
-        final_carry, actions = lax.scan(step, carry_init, None, length=4)
-
-        # Unpack the results
-        p1_state, p2_state, _ = final_carry
-        p1_actions, p2_actions = actions
-
-        return {'p1_states': p1_state, 'p1_actions': p1_actions, 'p2_states': p2_state, 'p2_actions': p2_actions, 'type': self.p1_type}
 
 
 def train(game, key, optimizer, iters, scale, solver):
     n_iter = iters
-    print_rate = 1000  # Adjust this value as needed for frequency of printing
-
-    def update(state, key_and_idx):
-        key, idx = key_and_idx
+    print_rate = 1000
+    def update(state, key_and_index):
+        key, idx = key_and_index
         params, opt_state = state
 
         # Progress reporting using id_tap
@@ -260,7 +217,6 @@ def train(game, key, optimizer, iters, scale, solver):
         game.set_p1_type(p1_type)
         game.sample_init_states(subkey2)
 
-        metrics = game.get_metrics(params)
 
         match solver:
             case "JPSPG":
@@ -274,7 +230,7 @@ def train(game, key, optimizer, iters, scale, solver):
         updates, opt_state = optimizer.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
         # params = jax.tree_util.tree_map(lambda params: jnp.squeeze(params, axis=0), params) # to maintain the shape
-        return (params, opt_state), metrics
+        return (params, opt_state), None #metrics
 
     key, subkey = random.split(key)
     params = game.init_params(subkey)
@@ -284,6 +240,7 @@ def train(game, key, optimizer, iters, scale, solver):
     # Combine keys and indices to pass both to the update function
     keys_and_indices = (keys, indices)
     (params, _), history = lax.scan(update, (params, opt_state), keys_and_indices)
+
 
     return params, history
 
@@ -321,7 +278,7 @@ def parse_args():
     p.add_argument("--lr", type=float, default=2e-6)
 
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--iters", type=int, default=10**8)
+    p.add_argument("--iters", type=int, default=20*10**7)
     p.add_argument("--scale", type=float, default=0.1)
 
     return p.parse_args()
@@ -351,13 +308,11 @@ def main():
         hist = jax.block_until_ready(hist)
         end_time = default_timer()
 
-        ckpt_dir_1 = os.path.abspath('jpspg_models/p1/')
-        ckpt_dir_2 = os.path.abspath('jpspg_models/p2/')
+        ckpt_dir_1 = os.path.abspath('jpspg_models_4stage/p1/')
+        ckpt_dir_2 = os.path.abspath('jpspg_models_4stage/p2/')
         checkpoints.save_checkpoint(ckpt_dir=ckpt_dir_1, target=params[0], step=0, overwrite=True)
         checkpoints.save_checkpoint(ckpt_dir=ckpt_dir_2, target=params[1], step=0, overwrite=True)
-        # game = get_game(args)
-        # print("P1 Type: ", hist['type'][-1])
-        # print(hist['type'])
+
         print("total time: ", end_time - start_time)
 
 
