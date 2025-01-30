@@ -9,6 +9,10 @@ import scipy.io as scio
 from utils import util_funcs
 from tqdm import tqdm
 
+"""
+Script to generate trajectory using JPSPG-trained policies.
+
+"""
 
 def scaled_tanh(x, a, b):
     return a + (b - a) * (jnp.tanh(x) + 1)/2
@@ -86,61 +90,20 @@ if __name__ == '__main__':
 
     p1_type = 0
 
-    # num_iters = 100
-
-
-    Us = []
-    U_GTs = []
-
     R1 = jnp.array([[0.05, 0], [0, 0.025]])
     R2 = jnp.array([[0.05, 0], [0, 0.1]])
 
-    # ys = [0, -0.5, 0.5]
+    # ys = [0, -0.5, 0.5] # if want to plot multiple trajectories.
     ys = [0]
     keys = jax.random.split(jax.random.PRNGKey(p1_type), len(ys))
 
-    # for run in tqdm(range(len(ys))):
-    for run in tqdm(range(len(ys))):
+    for run in tqdm(range(len(ys))): 
         # game.sample_init_states(keys[run])
         init_state = jnp.array([-0.5, ys[run], 0, 0, 0.5, ys[run], 0, 0])
         game.states = init_state
         p1_states, p2_states, actions = simulate_game(game.states, game.model, p1_params, p2_params, keys[run], p1_type)
 
         Us.append(actions)
-        # gt solution
-        tau = 0.25
-        A = jnp.eye(4) + jnp.array([[0, 0, tau, 0], [0, 0, 0, tau], [0, 0, 0, 0], [0, 0, 0, 0]])
-        B = jnp.array([[0.5 * tau ** 2, 0], [0, 0.5 * tau ** 2], [tau, 0], [0, tau]])
-        Qf = jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
-        Q = jnp.zeros((4, 4))
-        dt = tau
-        N = 4
-        R1 = jnp.array([[0.05, 0], [0, 0.025]]) * tau
-        R2 = jnp.array([[0.05, 0], [0, 0.1]]) * tau
-
-        K1 = util_funcs.discrete_lqr(A, B, Q, R1, Qf, N)
-        K2 = util_funcs.discrete_lqr(A, B, Q, R2, Qf, N)
-
-        p = 0.5
-        # change index for different time steps
-
-        target = p1_type
-
-        trajs = []
-        U_GT = []
-        D_GT = []
-        # trajs.append(states_)
-        N = 4
-        for i in range(4, 0, -1):
-            states_ = p1_states[-i-1]
-            if i <= 2:
-                p = 0 if target == 0 else 1
-            x1 = states_[:4]
-            goal = jnp.array([0, 2 * p - 1, 0, 0]) * jnp.ones_like(p)
-            u = -K1[-i] @ (x1 - goal).T
-            U_GT.append(u)
-
-        U_GTs.append(jnp.vstack(U_GT))
 
         # plots if needed
         fig, (state_ax, action_ax) = plt.subplots(
@@ -159,22 +122,6 @@ if __name__ == '__main__':
         state_ax.legend()
         action_ax.legend()
         plt.show()
-
-        # for trajs
-        p1_ = jnp.vstack(p1_states)
-        p2_ = jnp.vstack(p2_states)
-        import pandas as pd
-
-        # data_traj = {'x1': p1_[:, 0], 'y1': p1_[:, 1], 'x2': p2_[:, 0], 'y2': p2_[:, 1]}
-        # df = pd.DataFrame(data_traj)
-        # df.to_csv(f'jpspg_traj_{p1_type}_{ys[run]}_new')
-
-    # for actions
-    # data = {'U': Us, 'U_GT': U_GTs}
-    # scio.savemat(f'jpspg_dist_{p1_type}_100_new.mat', data)
-
-
-    # plt.show()
 
 
 
