@@ -12,7 +12,7 @@
 
 3. Navigate to `our_method/` to train the value network for different cases (CAMS) -- unconstrained, contrained and their dual versions and the 3d case.
     - run `./train_our_method.sh` to train the primal unconstrained case
-    - run `./train_our_method_for_cfr.sh` to train the comparison case (against DeepCFR)
+    - run `./train_our_method_for_cfr.sh` to train the 4-stage comparison case (against DeepCFR and JPSPG)
     - run `./train_our_method_dual.sh` to train the dual unconstrained case
     - run `./train_our_method_cons.sh` to train the primal constrained case
     - run `./train_our_method_cons_dual.sh` to train the dual constrained case
