@@ -85,8 +85,8 @@ def simulate_game(init_state, model, p1_action_nn, p2_action_nn, key, p1_type):
 if __name__ == '__main__':
     game = NormalFormCTGame(utility_function, 1, [(-12, 12)])
 
-    p1_params = checkpoints.restore_checkpoint('jpspg_models_new/p1/checkpoint_0', target=None)
-    p2_params = checkpoints.restore_checkpoint('jpspg_models_new/p2/checkpoint_0', target=None)
+    p1_params = checkpoints.restore_checkpoint('jpspg_models/p1/checkpoint_0', target=None)
+    p2_params = checkpoints.restore_checkpoint('jpspg_models/p2/checkpoint_0', target=None)
 
     p1_type = 0
 
