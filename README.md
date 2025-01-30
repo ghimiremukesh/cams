@@ -18,7 +18,7 @@
     - run `./train_our_method_cons_dual.sh` to train the dual constrained case
     - run `./train_our_method_3d.sh` to train the primal high dimensional case
 4. To train deep cfr policy networks, run `run_cfr_3.py` for $|A|=9$, and `run_cfr` for $|A|=16$.
-5. To train JPSPG Policies, navigate to `JPSPG/` and run `...incomplete_2d.py` for the normal-form game and `...2d_multi_stage.py` for 4-stage game.
+5. To train JPSPG Policies, navigate to `JPSPG/` and run `...incomplete_2d.py` for the normal-form game and `...2d_multi_stage.py` for 4-stage game. To visualize trajectories in the 4-stage game, run `JPSPG/trajectory_jpspg.py`, which uses pre-trained policies for P1 and P2. 
 6. To use Multigrid method to train the value networks, Navigate to `Multi-Grid/`.
     - run `run_multigrid.py` to train value networks using 2-level multigrid.
     - run `run_multigrid_n_cycle.py` to train value networks using n-level multigrid. Level can be specified with arguments `--kmax` and `--kmin`. Note `kmin >= 1`.
