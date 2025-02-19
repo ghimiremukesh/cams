@@ -154,7 +154,9 @@ class MultigridFAS:
             else:
                 augmented_val_fn = augment_correction_fn(self.val_model, v_Hs[t+1], self.epsilon_H_params[t+1])
                 # pdb.set_trace()
-                correction = coarse_solvers_adaptive(augmented_val_fn, v_Hs[t+1], self.X[self.t_H[t]], t, self.H, self.h, init_policies=self.policies[2*t])
+                vel_bound = util_funcs.compute_bounds(self.t_H[t], A_MAX)
+                X_unnorm = util_funcs.unnormalize_states(self.X[self.t_H[t]], vel_bound, vel_bound, vel_bound, vel_bound)
+                correction = coarse_solvers_adaptive(augmented_val_fn, v_Hs[t+1], X_unnorm, t, self.H, self.h, init_policies=self.policies[2*t])
                 correction -= coarse_residuals[t]
 
             self.coarse_corr[t] = correction.reshape(-1, 1)
