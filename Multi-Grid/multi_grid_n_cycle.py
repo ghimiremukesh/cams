@@ -166,13 +166,15 @@ class MultigridFAS:
                 correction = -coarse_residuals[t]
             else:
                 augmented_val_fn = augment_correction_fn(self.val_model, v_Hs[t+1], self.epsilon_H_params[t+1])
-                correction = coarse_solvers_adaptive(augmented_val_fn, v_Hs[t+1], self.X[t_h[t]], t, self.H, self.hs[-1],
+                vel_bound = util_funcs.compute_bounds(self.t_H[t], A_MAX)
+                X_unnorm = util_funcs.unnormalize_states(self.X[self.t_H[t]], vel_bound, vel_bound, vel_bound, vel_bound)
+                correction = coarse_solvers_adaptive(augmented_val_fn, v_Hs[t+1], X_unnorm, t, self.H, self.hs[-1],
                                             init_policies=self.policies[self.hs[-1]][2*t])
                 correction -= coarse_residuals[t]
 
             self.coarse_corr[t] = correction.reshape(-1, 1)
             # TODO: train coarse correction model and store the params in the dictionary
-            dataset = jdl.ArrayDataset(self.X[t], correction.reshape(-1, 1))
+            dataset = jdl.ArrayDataset(self.X[self.t_H[t]], correction.reshape(-1, 1))
             dataloader = jdl.DataLoader(dataset, backend='jax', batch_size=256, shuffle=True)
             curr_params = training.train(model=self.val_model,
                                          model_params=self.epsilon_H_params[t],
