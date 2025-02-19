@@ -125,7 +125,8 @@ class MultigridFAS:
         Updates the value functions at fine grid
         """
         # sample states and belief for each time-step
-        self.X = [sample_states(t, self.batch_size) for t in range(int(2**self.kmax))]
+        t_h = np.arange(0, 1, self.hs[0])
+        self.X = {t_h[t]: sample_states(t, self.batch_size) for t in range(int(2**self.kmax))}
         # down cycle
         # compute target and residual for value function at each time step at each grid level
         for i in range(len(self.hs)):
@@ -134,9 +135,9 @@ class MultigridFAS:
             t_h = np.arange(0, 1, h)
             fine_steps = int(1/h)
             for t in range(fine_steps):
-                curr_val = self.val_model.apply(val_fn_params[t], self.X[t])
+                curr_val = self.val_model.apply(val_fn_params[t], self.X[t_h[t]])
                 vel_bound = util_funcs.compute_bounds(t_h[t], A_MAX)
-                X_unnorm = util_funcs.unnormalize_states(self.X[t], vel_bound, vel_bound, vel_bound, vel_bound)
+                X_unnorm = util_funcs.unnormalize_states(self.X[t_h[t]], vel_bound, vel_bound, vel_bound, vel_bound)
                 if t == fine_steps - 1:
                     target, policy = dsgda_solver_final(X_unnorm, h, iters=self.fine_iters)
                 else:
@@ -165,13 +166,13 @@ class MultigridFAS:
                 correction = -coarse_residuals[t]
             else:
                 augmented_val_fn = augment_correction_fn(self.val_model, v_Hs[t+1], self.epsilon_H_params[t+1])
-                correction = coarse_solvers_adaptive(augmented_val_fn, v_Hs[t+1], self.X[2*t], t, self.H, self.hs[-1],
+                correction = coarse_solvers_adaptive(augmented_val_fn, v_Hs[t+1], self.X[t_h[t]], t, self.H, self.hs[-1],
                                             init_policies=self.policies[self.hs[-1]][2*t])
                 correction -= coarse_residuals[t]
 
             self.coarse_corr[t] = correction.reshape(-1, 1)
             # TODO: train coarse correction model and store the params in the dictionary
-            dataset = jdl.ArrayDataset(self.X[2*t], correction.reshape(-1, 1))
+            dataset = jdl.ArrayDataset(self.X[t], correction.reshape(-1, 1))
             dataloader = jdl.DataLoader(dataset, backend='jax', batch_size=256, shuffle=True)
             curr_params = training.train(model=self.val_model,
                                          model_params=self.epsilon_H_params[t],
@@ -209,14 +210,15 @@ class MultigridFAS:
         # Fit the fine value networks to the correction
         for i in range(len(self.hs)):
             h = self.hs[i]
+            t_h = np.arange(0, 1, h)
             val_fn_params = self.Vh_params[h]
             fine_steps = int(1/h)
             fine_corr = self.fine_corrs[h]
             for t in range(fine_steps-1):
                 curr_params = val_fn_params[t]
                 # pdb.set_trace()
-                curr_target = self.val_model.apply(curr_params, self.X[t]) + fine_corr[t]
-                dataset = jdl.ArrayDataset(self.X[t], curr_target)
+                curr_target = self.val_model.apply(curr_params, self.X[t_h[t]]) + fine_corr[t]
+                dataset = jdl.ArrayDataset(self.X[t_h[t]], curr_target)
                 dataloader = jdl.DataLoader(dataset, backend='jax', batch_size=256, shuffle=True)
                 new_params = training.train(model=self.val_model,
                                             model_params=curr_params,
@@ -227,7 +229,7 @@ class MultigridFAS:
                                             key=jax.random.PRNGKey(self.seed))
                 self.Vh_params[h][t] = new_params
 
-        # TODO: Smoothing -- Fit the value networks to a new minimax solution (initialized with the stored policies)
+        # Smoothing -- Fit the value networks to a new minimax solution (initialized with the stored policies)
         #  backward in time
         for i in range(len(self.hs)):
             h = self.hs[i]
@@ -236,7 +238,7 @@ class MultigridFAS:
             fine_steps = int(1/h)
             for t in reversed(range(fine_steps)):
                 # TODO: write a function that collects data with few iterations of dsgda
-                dataset, policy = get_smoothing_data(self.X[t],
+                dataset, policy = get_smoothing_data(self.X[t_h[t]],
                                              self.policies[h][t],
                                              self.val_model,
                                              val_fn_params[t+1] if t+1 < fine_steps else None,
