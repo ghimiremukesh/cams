@@ -121,12 +121,14 @@ class MultigridFAS:
         Updates the value functions at fine grid
         """
         # sample states and belief for each time-step
-        self.X = [sample_states(t, self.batch_size) for t in range(self.fine_steps)]
+        self.X = {self.t_h[t]: sample_states(t, self.batch_size) for t in range(self.fine_steps)}
+
+        # pdb.set_trace()
         # compute target and residual for value function at each time step
         for t in range(self.fine_steps):
-            curr_val = self.val_model.apply(self.Vh_params[t], self.X[t])
+            curr_val = self.val_model.apply(self.Vh_params[t], self.X[self.t_h[t]])
             vel_bound = util_funcs.compute_bounds(self.t_h[t], A_MAX)
-            X_unnorm = util_funcs.unnormalize_states(self.X[t], vel_bound, vel_bound, vel_bound, vel_bound)
+            X_unnorm = util_funcs.unnormalize_states(self.X[self.t_h[t]], vel_bound, vel_bound, vel_bound, vel_bound)
             if t == self.fine_steps - 1:
                 target, policy = dsgda_solver_final(X_unnorm, self.h, iters=60000) # can afford to train fully
             else:
@@ -151,13 +153,13 @@ class MultigridFAS:
                 correction = -coarse_residuals[t]
             else:
                 augmented_val_fn = augment_correction_fn(self.val_model, v_Hs[t+1], self.epsilon_H_params[t+1])
-                # pdb.set_trace() 2*t because 
-                correction = coarse_solvers_adaptive(augmented_val_fn, v_Hs[t+1], self.X[2*t], t, self.H, self.h, init_policies=self.policies[2*t])
+                # pdb.set_trace()
+                correction = coarse_solvers_adaptive(augmented_val_fn, v_Hs[t+1], self.X[self.t_H[t]], t, self.H, self.h, init_policies=self.policies[2*t])
                 correction -= coarse_residuals[t]
 
             self.coarse_corr[t] = correction.reshape(-1, 1)
             # train coarse correction model and store the params in the dictionary
-            dataset = jdl.ArrayDataset(self.X[2*t], correction.reshape(-1, 1))
+            dataset = jdl.ArrayDataset(self.X[self.t_H[t]], correction.reshape(-1, 1))
             # pdb.set_trace()
             dataloader = jdl.DataLoader(dataset, backend='jax', batch_size=256, shuffle=True)
             curr_params = training.train(model=self.val_model,
@@ -182,8 +184,8 @@ class MultigridFAS:
         for t in range(self.fine_steps-1):
             curr_params = self.Vh_params[t]
             # pdb.set_trace()
-            curr_target = self.val_model.apply(curr_params, self.X[t]) + self.fine_corr[t]
-            dataset = jdl.ArrayDataset(self.X[t], curr_target)
+            curr_target = self.val_model.apply(curr_params, self.X[self.t_h[t]]) + self.fine_corr[t]
+            dataset = jdl.ArrayDataset(self.X[self.t_h[t]], curr_target)
             dataloader = jdl.DataLoader(dataset, backend='jax', batch_size=256, shuffle=True)
             new_params = training.train(model=self.val_model,
                                         model_params=curr_params,
@@ -198,7 +200,7 @@ class MultigridFAS:
         #  backward in time
         for t in reversed(range(self.fine_steps)):
             # write a function that collects data with few iterations of dsgda
-            dataset, policy = get_smoothing_data(self.X[t],
+            dataset, policy = get_smoothing_data(self.X[self.t_h[t]],
                                          self.policies[t],
                                          self.val_model,
                                          self.Vh_params[t+1] if t+1 < self.fine_steps else None,
