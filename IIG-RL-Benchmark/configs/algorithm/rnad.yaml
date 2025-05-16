@@ -1,0 +1,44 @@
+algorithm_name: rnad
+
+# The games longer than this value are truncated. Must be strictly positive.
+trajectory_max: 100
+
+# The content of the EnvStep.obs tensor.
+state_representation: 'info_set' #StateRepresentation.INFO_SET
+
+seed: None
+
+# Network configuration.
+policy_network_layers: [512, 512, 512]
+
+# The batch size to use when learning/improving parameters.
+batch_size: 256
+# The learning rate for `params`.
+learning_rate: 0.00005
+
+# All gradients values are clipped to [-clip_gradient, clip_gradient].
+clip_gradient: 10_000
+# The "speed" at which `params_target` is following `params`.
+target_network_avg: 0.001
+
+# RNaD algorithm configuration.
+# Entropy schedule configuration. See EntropySchedule class documentation.
+entropy_schedule_repeats: [1,]
+entropy_schedule_size_value: 50000  # interpreted as [50000,]
+
+# The weight of the reward regularisation term in RNaD.
+eta_reward_transform: 0.2
+
+c_vtrace: 1.0
+
+# Options related to fine tuning of the agent.
+finetune: None
+
+nerd:
+  beta: 2.0
+  clip: 10_000
+# The config related to the ADAM optimizer used for updating `params`.
+adam:
+  b1: 0.0
+  b2: 0.999
+  eps: 10e-8

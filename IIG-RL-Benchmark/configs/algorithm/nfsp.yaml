@@ -1,0 +1,17 @@
+algorithm_name: nfsp  # Name of the algorithm.
+eval_every: 1000  # Episode frequency at which the agents are evaluated.
+hidden_layers_sizes: [512, 512, 512]  # Number of hidden units in the avg-net and Q-net.
+reservoir_buffer_capacity: 2000000  # Size of the reservoir buffer.
+min_buffer_size_to_learn: 1000  # Number of samples in buffer before learning begins.
+anticipatory_param: 0.1  # Probability of using the rl best response as episode policy.
+batch_size: 128  # Number of transitions to sample at each learning step.
+learn_every: 64  # Number of steps between learning step.
+sl_learning_rate: 0.01  # Learning rate for avg-policy sl network.
+rl_learning_rate: 0.01  # Learning rate for q network.
+optimizer_str: "adam"  # Optimizer type.
+loss_str: "mse"  # Loss function for q function, either 'mse' or 'huber'.
+results_path: ''  # Path to save results.
+max_steps: None  # Total number of steps to train the agent.
+
+defaults:
+  - inner_rl_agent: dqn

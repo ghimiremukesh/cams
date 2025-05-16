@@ -1,0 +1,31 @@
+seed: 0
+max_steps: 50000000
+game: hexners_game_fixed_state
+save_dir: results/
+turn_based: false
+group_name: ppo_final
+experiment_dir: results/ppo_final/ppo/hexners_game_fixed_state/2025-05-08_03-19-56-251123_0c75b4
+compute_exploitability: false
+compute_exploitability_every: 100000
+run_in_safe_mode: false
+job_id: -1
+algorithm:
+  algorithm_name: ppo
+  learning_rate: 2.5e-05
+  eval_every: 10
+  cuda: false
+  num_envs: 128
+  num_steps: 64
+  anneal_lr: true
+  gae: true
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  norm_adv: true
+  clip_coef: 0.2
+  clip_vloss: true
+  ent_coef: 0.025
+  vf_coef: 0.5
+  max_grad_norm: 5
+  target_kl: null

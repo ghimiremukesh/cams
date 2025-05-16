@@ -1,0 +1,25 @@
+# PSRO related
+algorithm_name: psro  # Name of the algorithm.
+meta_strategy_method: "nash"  # Name of meta strategy computation method.
+number_policies_selected: 1  # Number of new strategies trained at each PSRO iteration.
+sims_per_entry: 1000  # Number of simulations to run to estimate each element of the game outcome matrix.
+symmetric_game: false  # Whether to consider the current game as a symmetric game.
+
+# Rectify options
+rectifier: ""  # Which rectifier to use. Choices are '' (No filtering), 'rectified' for rectified.
+training_strategy_selector: "probabilistic"  # Which strategy selector to use. Choices are 'top_k_probabilities', 'probabilistic', 'uniform', 'rectified'.
+
+# Checkpoint and logging
+ckpt_freq: 1  # Checkpoint frequency.
+
+# General (RL) agent parameters
+number_training_episodes: 1000  # Number training episodes per RL policy. Used for PG and DQN.
+self_play_proportion: 0.0  # Self-play proportion.
+hidden_layer_size: 512  # Hidden layer size.
+n_hidden_layers: 3  # Number of hidden layers.
+sigma: 0.0  # Policy copy noise (Gaussian Dropout term).
+optimizer_str: "adam"  # Optimizer type: 'adam' or 'sgd'.
+oracle_type: "dqn"  # Choices are DQN, PG (Policy Gradient), or BR (exact Best Response).
+
+defaults:
+  - inner_rl_agent: dqn

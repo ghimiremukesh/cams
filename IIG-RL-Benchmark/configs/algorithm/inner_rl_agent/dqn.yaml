@@ -1,0 +1,12 @@
+algorithm_name: dqn  # Name of the algorithm.
+learning_rate: 0.01  # Learning rate for inner RL agent.
+update_target_network_every: 1000  # Number of steps between target network updates.
+discount_factor: 1.0  # Discount factor for future rewards.
+epsilon_decay_duration: 20000000  # Number of games over which epsilon is decayed.
+epsilon_start: 0.06  # Starting epsilon value for DQN.
+epsilon_end: 0.001  # Ending epsilon value for DQN.
+replay_buffer_capacity: 200000  # Size of the replay buffer.
+batch_size: 32  # Number of transitions to sample at each learning step.
+learn_every: 10 
+optimizer_str: "adam"
+loss_str: "mse"

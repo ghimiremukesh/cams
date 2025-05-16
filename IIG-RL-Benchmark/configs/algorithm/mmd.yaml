@@ -1,0 +1,5 @@
+defaults:
+  - ppo
+
+algorithm_name: mmd
+kl_coef: 0.05  # coefficient of the backward kl divergence

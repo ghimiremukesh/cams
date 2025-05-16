@@ -1,0 +1,15 @@
+# This file is an example of a head2head configuration file.
+# The head2head configuration file is used to compare the performance of agents in a head-to-head manner.
+# The configuration file is a YAML file that contains the following fields:
+
+# - game: The name of the game that the agents are playing.
+# - agents: A list of agents that are being compared.
+#   - path: The path to the agent file. 
+#           for the game theoretic algos, the path should be a .pkl file, 
+#           for the deep learning algos, the path should be a .pth file
+#   - algo: The name of the algorithm that the agent was trained with.
+
+game: hexners_game_fixed_state
+agents:
+    - path: "agents/agent_rnad.pkl"
+      algo: rnad

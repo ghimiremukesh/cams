@@ -1,0 +1,53 @@
+[project]
+name = "2p0s-pixi"
+channels = ["https://repo.prefix.dev/rando-forge", "conda-forge", "nodefaults"]
+platforms = ["linux-64"]
+
+[system-requirements]
+# cuda = "12"
+linux = "3"
+
+[dependencies]
+# eas
+boost = ">=1.85"
+boost-cpp = ">=1.85"
+cmake = ">=3.29"
+gcc = "<=13"                  # https://github.com/pybind/pybind11/issues/5206
+gxx = "<=13"                  # https://github.com/pybind/pybind11/issues/5206
+ninja = "*"
+numpy = "<2"
+pip = "*"
+pybind11 = "*"
+python = "3.11.*"
+sysroot_linux-64 = { version = ">=2.28,<=2.31", channel = "conda-forge" }
+scikit-build-core = ">=0.3.3"
+open-spiel = ">=1.5.0.1"
+libxcrypt = ">=4.4.36,<5"
+cvxopt = "*"
+pandas = "*"
+matplotlib = "*"
+# pytorch = { version = ">=2.3", build = "*cuda12*" }
+# tensorflow = { version = "=2.15.0", build = "*cuda12*" }
+# tf2onnx = "*"
+# onnx2pytorch = "*"
+
+[pypi-dependencies]
+eas = { path = "./eas" } # editable = true 
+simple_parsing = "*"
+wandb = "*"
+
+[pypi-options]
+no-build-isolation = ["eas"]
+
+[feature.dev.dependencies]
+ipykernel = "*"
+pytest = "*"
+gdb = ">=15.1"
+pybind11-stubgen = "*"
+submitit = "*"
+
+ruff = "*"
+mypy = ">=1.11.2,<2"
+
+[environments]
+default = { features = ["dev"] }

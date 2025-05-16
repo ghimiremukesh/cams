@@ -1,0 +1,20 @@
+algorithm_name: escher  # Name of the algorithm.
+iters: 100000000  # Number of iterations.
+learning_rate: 1e-3  # Learning rate
+num_traversals: 1000  # Number of game traversals for regret network buffer
+num_val_fn_traversals: 1000  # Number of game traversals for value network buffer
+eval_every: 1  # Evaluate every n iterations.
+regret_train_steps: 5000  # Regret network training steps.
+val_train_steps: 5000  # Value network training steps.
+policy_net_train_steps: 10000  # Policy network training steps.
+batch_size_regret: 2048  # Batch size for training regret network.
+batch_size_val: 2048  # Batch size for training value network.
+train_device: "cpu"  # Training device (cpu or cuda).
+infer_device: "cpu"  # Inference device (cpu or cuda).
+value_network_layers: [512, 512, 512]
+regret_network_layers: [512, 512, 512]
+policy_network_layers: [512, 512, 512]
+num_cpus: 8
+num_workers: 8
+expl: 1.0  # hparam
+val_expl: 0.01  # hparam

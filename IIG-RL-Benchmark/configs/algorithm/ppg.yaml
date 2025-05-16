@@ -1,0 +1,11 @@
+defaults:
+  - ppo
+
+algorithm_name: ppg  # Name of the algorithm
+n_iteration: 32  # N_pi: the number of policy updates in the policy phase
+e_policy: 1  # E_pi: the number of policy updates in the policy phase
+v_value: 1  # E_V: the number of policy updates in the policy phase
+e_auxiliary: 6  # E_aux: the K epochs to update the policy
+beta_clone: 1.0  # the behavior cloning coefficient
+num_aux_rollouts: 4  # the number of mini-batches in the auxiliary phase
+n_aux_grad_accum: 1  # the number of gradient accumulation in mini-batch
