@@ -22,3 +22,5 @@
 6. To use Multigrid method to train the value networks, Navigate to `Multi-Grid/`.
     - run `run_multigrid.py` to train value networks using 2-level multigrid.
     - run `run_multigrid_n_cycle.py` to train value networks using n-level multigrid. Level can be specified with arguments `--kmax` and `--kmin`. Note `kmin >= 1`.
+7. To train the SOTA RL Models on the Hexner's game, navigate to `IIG-RL-Benchmark` and run `diff_game_main_exp.py`, which uses [`IIG-RL-Benchmark`](https://github.com/nathanlct/IIG-RL-Benchmark) repo. The environment for the Hexner's game is in `open_spiel_games`. To change the time discretization and action space, go to `open_spiel_games/hexners_game_fixed_state.py` and make the necessary changes. For exploitability, openspiel's native algorithm is used. The eval scripts are in `SOTA_Test_Scripts`.
+8. To train CAMS-DRL models, navigate to `CAMS-RL` and run `PPO_pub_belief_trainer.py` to train the PPO agent and `MMD_pub_belief_trainer.py` to train the MMD agent. For evaluation, run `eval_game_pub_belief.py`
