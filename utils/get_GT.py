@@ -24,17 +24,21 @@ def discrete_lqr(Ad, Bd, Q, R, Qf, N):
 
     # Initialize the list for K_k matrices
     K_matrices = []
-
+    P_matrices = []
+    
     # Initialize P_N
     Pk = Qf
-
+    P_matrices.insert(0, Pk)
+    
     # Backward recursion to compute P_k and K_k
     for k in range(N, 0, -1):
         Fk = jnp.linalg.inv(Rd + Bd.T @ Pk @ Bd) @ Bd.T @ Pk @ Ad
         Pk = Fk.T @ Rd @ Fk + (Ad - Bd @ Fk).T @ Pk @ (Ad - Bd @ Fk)
+        P_matrices.insert(0, Pk)
         K_matrices.insert(0, Fk)
 
-    return K_matrices
+    
+    return K_matrices, P_matrices
 
 
 
@@ -62,12 +66,15 @@ def get_GT(states, p, target, n, tau=0.1):
     R1 = jnp.array([[0.05, 0], [0, 0.025]]) * tau
     R2 = jnp.array([[0.05, 0], [0, 0.1]]) * tau
 
-    K1 = discrete_lqr(A, B, Q, R1, Qf, N)
-    K2 = discrete_lqr(A, B, Q, R2, Qf, N)
+    K1, P1 = discrete_lqr(A, B, Q, R1, Qf, N)
+    K2, P2 = discrete_lqr(A, B, Q, R2, Qf, N)
 
 
-    # assumes t_r = 0.5
-    if n <= 5:
+    tr = N - get_tr(A, B, P1, P2, R1, R2, N=N)  # critical time index
+
+    # print(tr)
+
+    if n <= tr:
         p = 0 if target == 0 else 1
     
     x1 = states[:4]
@@ -79,25 +86,25 @@ def get_GT(states, p, target, n, tau=0.1):
     return u, v
     
 
-# use this to get the critical time index
-# def get_tr(A, B, P1, P2, R1, R2, N=10):
-#     """
-#     Return the index of the critical time. 
-#     """
-#     def compute_d(A, B, P, R):
-#         z = jnp.array([[0, 1, 0, 0]]).reshape(-1, 1)
-#         d = z.T @ A @ P @ B @ jnp.linalg.inv(R) @ B.T @ P @ A @ z
+#use this to get the critical time index
+def get_tr(A, B, P1, P2, R1, R2, N=10):
+    """
+    Return the index of the critical time. 
+    """
+    def compute_d(A, B, P, R):
+        z = jnp.array([[0, 1, 0, 0]]).reshape(-1, 1)
+        d = z.T @ A @ P @ B @ jnp.linalg.inv(R) @ B.T @ P @ A @ z
         
-#         return d
+        return d
 
-#     d1s = jnp.vstack([compute_d(A, B, P1[i], R1) for i in range(N+1)])
-#     d2s = jnp.vstack([compute_d(A, B, P2[i], R2) for i in range(N+1)])
+    d1s = jnp.vstack([compute_d(A, B, P1[i], R1) for i in range(N+1)])
+    d2s = jnp.vstack([compute_d(A, B, P2[i], R2) for i in range(N+1)])
 
-#     f_n = d1s - d2s
+    f_n = d1s - d2s
 
-#     summation = jnp.array([sum(f_n.reshape(-1, )[:i]) for i in range(N+1)])
+    summation = jnp.array([sum(f_n.reshape(-1, )[:i]) for i in range(N+1)])
     
-#     return jnp.argmin(summation)
+    return jnp.argmin(summation)
     
 
 
@@ -106,16 +113,9 @@ if __name__ == "__main__":
     states = jnp.array([-0.5, 0, 0, 0, 0.5, 0, 0, 0])
     p = 0.5
     target = 1
-    n = 10  # initial time-step 
-    tau = 0.1
+    n = 4  # initial time-step 
+    tau = 0.25
 
     u, v = get_GT(states, p, target, n, tau)
     print("Control input for P1:", u)
     print("Control input for P2:", v)
-
-
-
-
-
-
-
