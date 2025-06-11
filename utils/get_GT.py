@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import numpy as np
 
 
 
@@ -104,7 +105,7 @@ def get_tr(A, B, P1, P2, R1, R2, N=10):
 
     # summation = jnp.array([sum(f_n.reshape(-1, )[:i]) for i in range(N+1)]) 
     # replace with higher order integration
-    return jnp.concatenate(([0.0], jnp.cumsum(0.5*dt*(f_n[:-1] + f_n[1:])))).argmin()
+    return np.concatenate(([0.0], np.cumsum(0.5*(f_n[:-1] + f_n[1:])))).argmin()
     
 
 
