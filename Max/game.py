@@ -330,9 +330,16 @@ def default_football_spec(N: int = 11,
                           box_acc: float = 3.0,
                           rep_strength: float = 0.01,
                           rep_power: int = 2,
-                          rep_cutoff: float = 0.20,
-                          rep_k: float = 25.0,          # ← NEW  spring (N·s² / m)
-                          rep_c: float = 2.0,           # ← NEW  dash-pot (N·s / m)
+                          # contact -------------------------------
+                          rep_cutoff:   float = 0.25,
+                          rep_k:        float = 25.0,
+                          rep_c:        float = 2.0,
+                          # merge ---------------------------------
+                          merge_radius: float = 0.15,
+                          merge_sigma:  float = 0.05,
+                          # line-up offset ------------------------
+                          lineup_off_x: float = -1.2,   # offence x-coord
+                          lineup_def_x: float = -0.4,   # defence x-coord
                           n_substeps: int = 4,
                           ) -> Dict[str, Any]:
     """Return a dict with all tunable parameters collected in one place."""
@@ -359,6 +366,10 @@ def default_football_spec(N: int = 11,
         "REP_CUTOFF"  : rep_cutoff,     # r_cut
         "REP_K"      : rep_k,         # ← spring constant
         "REP_C"      : rep_c,         # ← damping coefficient
+        "MERGE_RADIUS": merge_radius,
+        "MERGE_SIGMA" : merge_sigma,
+        "LINEUP_OFF_X": lineup_off_x,
+        "LINEUP_DEF_X": lineup_def_x,
         "n_substeps" : n_substeps,    # substeps to simulate contact
     }
 
@@ -396,10 +407,12 @@ class FootballGame(BaseGame):
         # repulsive potential params -----------------------------------
         self.theta     = spec["REP_STRENGTH"]
         self.rep_power = spec["REP_POWER"]
-        self.rep_k     = spec["REP_K"]      # spring
-        self.rep_c     = spec["REP_C"]      # dash-pot
-        self.r_cut     = spec["REP_CUTOFF"]
-        self.r_cut2    = spec["REP_CUTOFF"] ** 2
+        self.rep_k      = spec["REP_K"]
+        self.rep_c      = spec["REP_C"]
+        self.r_cut      = spec["REP_CUTOFF"]
+        self.r_cut2     = self.r_cut ** 2
+        self.merge_r2   = spec["MERGE_RADIUS"] ** 2
+        self.merge_sig2 = spec["MERGE_SIGMA"]  ** 2
 
         self.n_substeps = spec["n_substeps"]   # physics sub-steps per user-visible dt
 
@@ -413,6 +426,12 @@ class FootballGame(BaseGame):
 
         super().__init__(horizon=self.T, dt=self.dt,
                          n_types=self.I, device=self.device)
+
+        # pre-compute opponent mask M×M (team1 vs team2)
+        M = 2 * self.N
+        side = torch.arange(M) < self.N
+        self.register_buffer(
+            "opp_mask", (side.unsqueeze(1) ^ side.unsqueeze(0)).float())  # (M,M)
 
         self.reset()
 
@@ -447,8 +466,10 @@ class FootballGame(BaseGame):
         # line-up: vertical string centred at y=0, x = −1 / +1
         idx        = torch.arange(N, device=dev)          # 0 … N−1
         y_coords   = (idx - (N - 1) / 2) / (N - 1)        # ≈ −½ … +½
-        pos1_row   = torch.stack([-torch.ones_like(y_coords)*0.5,  y_coords], dim=-1)  # (N,2)
-        pos2_row   = torch.stack([ torch.ones_like(y_coords)*0.5,  y_coords], dim=-1)
+        off_x = self.spec["LINEUP_OFF_X"]          # e.g., −1.2
+        def_x = self.spec["LINEUP_DEF_X"]          # e.g., −0.4
+        pos1_row = torch.stack([torch.full_like(y_coords, off_x),  y_coords], dim=-1)
+        pos2_row = torch.stack([torch.full_like(y_coords, def_x),  y_coords], dim=-1)
 
         pos1       = pos1_row.unsqueeze(0).repeat(B, 1, 1)   # (B,N,2)
         pos2       = pos2_row.unsqueeze(0).repeat(B, 1, 1)
@@ -486,34 +507,64 @@ class FootballGame(BaseGame):
 
         return force                                               # acceleration contribution
 
-    def _compute_contact(self,
-                     pos_all: Tensor, vel_all: Tensor) -> Tensor:
+    def _contact_acc(self, pos_all: Tensor, vel_all: Tensor) -> Tensor:
         """
-        Kelvin-Voigt contact:    F = k · δ · n  +  c · (v_rel·n)⁺ · n
-        δ         = (r_cut – r)⁺      penetration depth
-        n         = unit relative vector
-        (·)⁺      = max(·, 0)   (damping only on approaching pairs)
-        Returns (B, 2N, 2) accelerations.
+        Kelvin–Voigt spring + dashpot between OPPOSING players only.
+        Return accelerations (B,2N,2).  Masses are 1.
         """
-        diff   = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)     # (B,M,M,2)
-        dist2  = (diff**2).sum(-1) + self.eps                    # (B,M,M)
-        mask   = (dist2 < self.r_cut2) & (dist2 > 0)             # no self-pairs
-        r      = dist2.sqrt()                                    # (B,M,M)
-        n      = diff / r.unsqueeze(-1)                          # unit vectors
+        diff  = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)       # (B,M,M,2)
+        dist2 = (diff**2).sum(-1) + 1e-6
+        mask  = (dist2 < self.r_cut2).float() * self.opp_mask     # include only opponents
 
-        # spring term ----------------------------------------------------
-        δ      = (self.r_cut - r).clamp(min=0.0)                 # penetration
-        F_s    = self.rep_k * δ.unsqueeze(-1) * n                # (B,M,M,2)
+        r     = dist2.sqrt()
+        n     = diff / r.unsqueeze(-1)
 
-        # dash-pot term --------------------------------------------------
-        v_rel  = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)     # (B,M,M,2)
-        vn     = (v_rel * n).sum(-1, keepdim=True)               # scalar proj
-        vn_pos = vn.clamp(max=0.0)                               # only approaching
-        F_d    = self.rep_c * vn_pos * n                         # (B,M,M,2)
+        # spring -------------------------
+        delta = (self.r_cut - r).clamp(min=0.0)
+        F_s   = self.rep_k * delta.unsqueeze(-1) * n
 
-        F      = (F_s + F_d) * mask.unsqueeze(-1)                # zero out far pairs
-        acc    = F.sum(2) / 1.0                                  # m=1 → a = F
-        return acc                                               # (B,M,2)
+        # dash-pot -----------------------
+        v_rel = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)
+        vn    = (v_rel * n).sum(-1, keepdim=True).clamp(max=0.0)  # only approaching
+        F_d   = self.rep_c * vn * n
+
+        F = (F_s + F_d) * mask.unsqueeze(-1)
+        return F.sum(2)               # (B,M,2)
+
+    # ------------------------------------------------------------------
+    def _merge(self, pos1, pos2, vel1, vel2, acc1, acc2):
+        diff  = pos1.unsqueeze(2) - pos2.unsqueeze(1)          # (B,N,N,2)
+        dist2 = (diff**2).sum(-1)
+        w     = torch.exp(-dist2 / (2*self.merge_sig2))        # soft weight
+        w    *= (dist2 < self.merge_r2).float()                # only inside radius
+
+        # attacker update
+        w_sum_a = w.sum(2, keepdim=True)
+        vel1 = (vel1 + (w.unsqueeze(-1)*vel2.unsqueeze(1)).sum(2)) / (1.0 + w_sum_a)
+        acc1 = (acc1 + (w.unsqueeze(-1)*acc2.unsqueeze(1)).sum(2)) / (1.0 + w_sum_a)
+
+        # defender update
+        w_sum_d = w.sum(1, keepdim=True)
+        vel2 = (vel2 + (w.transpose(1,2).unsqueeze(-1)*vel1.unsqueeze(1)).sum(1)) / (1.0 + w_sum_d)
+        acc2 = (acc2 + (w.transpose(1,2).unsqueeze(-1)*acc1.unsqueeze(1)).sum(1)) / (1.0 + w_sum_d)
+
+        return vel1, vel2, acc1, acc2, w          # return w for later masking
+
+    # ------------------------------------------------------------------
+    def _inelastic_impulse(self, pos_all, vel_all):
+        diff  = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)
+        dist2 = (diff**2).sum(-1) + 1e-6
+        mask  = (dist2 < self.merge_r2).float() * self.opp_mask   # only within merge radius
+        r     = dist2.sqrt()
+        n     = diff / r.unsqueeze(-1)
+
+        v_rel = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)
+        vn    = (v_rel * n).sum(-1, keepdim=True)
+        approaching = (vn < 0).float() * mask.unsqueeze(-1)
+
+        j = -vn * approaching * 0.5                               # masses=1, e=0
+        vel_all = vel_all + (j * n).sum(2) - (j * n).sum(1)
+        return vel_all
 
     # -----------------------------------------------------
     def _running_loss(self, u1: Tensor, u2: Tensor) -> Tensor:
@@ -537,66 +588,45 @@ class FootballGame(BaseGame):
 
     # -----------------------------------------------------
     def step(self, u1: Tensor, u2: Tensor):
-        """
-        Semi-implicit Euler with   `self.n_substeps`   micro-steps.
-        Kelvin–Voigt spring-dashpot + optional restitution impulse.
-        """
-        # ---------- normalise action shapes --------------------------- #
-        def _reshape(u: Tensor) -> Tensor:
-            if u.shape[-1] == 2:                       # broadcast same pair
-                u = u.repeat_interleave(self.N, dim=-1)
-            assert u.shape[-1] == self.ACTION_DIM, \
-                f"Need {self.ACTION_DIM} numbers, got {u.shape[-1]}"
-            return u.view(self.B, self.N, 2)           # (B, N, 2)
-        
-        u1 = _reshape(u1).clamp(-self.BOX_ACC, self.BOX_ACC)
-        u2 = _reshape(u2).clamp(-self.BOX_ACC, self.BOX_ACC)
+        # --- normalise shapes ----------------------------------------
+        def _shp(u):
+            if u.shape[-1] == 2:
+                u = u.repeat_interleave(self.N, -1)
+            assert u.shape[-1] == self.ACTION_DIM
+            return u.view(self.B, self.N, 2).clamp(-self.BOX_ACC, self.BOX_ACC)
+
+        u1 = _shp(u1)
+        u2 = _shp(u2)
+        dt_s = self.dt / self.n_substeps
 
         for _ in range(self.n_substeps):
-            # ------ compute accelerations ------------------------------
+            # unpack ---------------------------------------------------
             pos1, vel1, pos2, vel2 = self._split_state(self.x)
-            pos_all = torch.cat([pos1, pos2], dim=1)
-            vel_all = torch.cat([vel1, vel2], dim=1)
-            acc_rep = self._compute_contact(pos_all, vel_all)      # (B,2N,2)
-            rep1, rep2 = acc_rep[:, :self.N], acc_rep[:, self.N:]
 
-            acc1_tot = u1 + rep1
-            acc2_tot = u2 + rep2
+            # 1) smooth merge first -----------------------------------
+            vel1, vel2, acc1_c, acc2_c, w = self._merge(
+                    pos1, pos2, vel1, vel2,
+                    torch.zeros_like(vel1), torch.zeros_like(vel2))
 
-            # ------ symplectic update ----------------------------------
-            vel1 = (vel1 + acc1_tot * (self.dt / self.n_substeps)
-                        ).clamp(-self.BOX_VEL, self.BOX_VEL)
-            vel2 = (vel2 + acc2_tot * (self.dt / self.n_substeps)
-                        ).clamp(-self.BOX_VEL, self.BOX_VEL)
+            # 2) total accel = controls unless merged -----------------
+            acc1_tot = torch.where(w.sum(2, keepdim=True) > 0, acc1_c, u1)
+            acc2_tot = torch.where(w.sum(1, keepdim=True) > 0, acc2_c, u2)
 
-            pos1 = (pos1 + vel1 * (self.dt / self.n_substeps)
-                        ).clamp(-self.BOX_POS, self.BOX_POS)
-            pos2 = (pos2 + vel2 * (self.dt / self.n_substeps)
-                        ).clamp(-self.BOX_POS, self.BOX_POS)
+            # 3) semi-implicit Euler ---------------------------------
+            vel1 = (vel1 + acc1_tot * dt_s).clamp(-self.BOX_VEL, self.BOX_VEL)
+            vel2 = (vel2 + acc2_tot * dt_s).clamp(-self.BOX_VEL, self.BOX_VEL)
+            pos1 = (pos1 + vel1 * dt_s).clamp(-self.BOX_POS, self.BOX_POS)
+            pos2 = (pos2 + vel2 * dt_s).clamp(-self.BOX_POS, self.BOX_POS)
 
-            # ------ optional restitution impulse -----------------------
-            pos_all = torch.cat([pos1, pos2], dim=1)
-            vel_all = torch.cat([vel1, vel2], dim=1)
-
-            diff   = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)     # (B,M,M,2)
-            dist2  = (diff**2).sum(-1) + self.eps
-            mask   = (dist2 < self.r_cut2) & (dist2 > 0)             # overlap pairs
-            r      = dist2.sqrt()
-            n      = diff / r.unsqueeze(-1)
-
-            v_rel  = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)
-            vn     = (v_rel * n).sum(-1, keepdim=True)               # (B,M,M,1)
-            approaching = (vn < 0) & mask.unsqueeze(-1)
-
-            e      = 0.2                                             # restitution
-            j_imp  = -(1 + e) * vn * approaching * 0.5               # masses = 1
-            vel_all = vel_all + (j_imp * n).sum(2) - (j_imp * n).sum(1)
-
-            # scatter back the velocities
+            # 4) inelastic impulse (no bounce) ------------------------
+            vel_all = torch.cat([vel1, vel2], 1)
+            vel_all = self._inelastic_impulse(torch.cat([pos1, pos2], 1), vel_all)
             vel1, vel2 = vel_all[:, :self.N], vel_all[:, self.N:]
+
+            # 5) commit state ----------------------------------------
             self.x = self._merge_state(pos1, vel1, pos2, vel2)
 
-        self.t = self.t + self.dt
+        self.t += self.dt
 
     # -----------------------------------------------------
     def rollout(self,
