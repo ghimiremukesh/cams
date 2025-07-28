@@ -335,7 +335,7 @@ def default_football_spec(N: int = 11,
                           rep_k:        float = 25.0,
                           rep_c:        float = 2.0,
                           # merge ---------------------------------
-                          merge_radius: float = 0.15,
+                          merge_radius: float = 0.25,
                           merge_sigma:  float = 0.05,
                           # line-up offset ------------------------
                           lineup_off_x: float = -1.2,   # offence x-coord
@@ -532,23 +532,35 @@ class FootballGame(BaseGame):
         return F.sum(2)               # (B,M,2)
 
     # ------------------------------------------------------------------
-    def _merge(self, pos1, pos2, vel1, vel2, acc1, acc2):
-        diff  = pos1.unsqueeze(2) - pos2.unsqueeze(1)          # (B,N,N,2)
-        dist2 = (diff**2).sum(-1)
-        w     = torch.exp(-dist2 / (2*self.merge_sig2))        # soft weight
-        w    *= (dist2 < self.merge_r2).float()                # only inside radius
+    def _merge(self,
+            pos1: torch.Tensor, pos2: torch.Tensor,
+            vel1: torch.Tensor, vel2: torch.Tensor,
+            acc1: torch.Tensor, acc2: torch.Tensor):
+        """
+        Smoothly glue attacker–defender pairs within MERGE_RADIUS.
+        All ops are out-of-place and autograd-safe.
+        Returns updated (vel1, vel2, acc1, acc2, w) where
+        w ∈ [0,1] measures pairwise “stickiness”.
+        """
+        diff   = pos1.unsqueeze(2) - pos2.unsqueeze(1)            # (B,N,N,2)
+        dist2  = (diff.square()).sum(-1)                          # (B,N,N)
 
-        # attacker update
-        w_sum_a = w.sum(2, keepdim=True)
-        vel1 = (vel1 + (w.unsqueeze(-1)*vel2.unsqueeze(1)).sum(2)) / (1.0 + w_sum_a)
-        acc1 = (acc1 + (w.unsqueeze(-1)*acc2.unsqueeze(1)).sum(2)) / (1.0 + w_sum_a)
+        gaussian = torch.exp(-dist2 / (2 * self.merge_sig2))      # soft bandwidth
+        inside   = (dist2 < self.merge_r2).float()                # hard cut-off
+        w        = gaussian * inside                              # out-of-place ✔️
 
-        # defender update
-        w_sum_d = w.sum(1, keepdim=True)
-        vel2 = (vel2 + (w.transpose(1,2).unsqueeze(-1)*vel1.unsqueeze(1)).sum(1)) / (1.0 + w_sum_d)
-        acc2 = (acc2 + (w.transpose(1,2).unsqueeze(-1)*acc1.unsqueeze(1)).sum(1)) / (1.0 + w_sum_d)
+        # attackers ------------------------------------------------------
+        w_sum_a  = w.sum(2, keepdim=True)                         # (B,N,1)
+        vel1_new = (vel1 + (w.unsqueeze(-1) * vel2.unsqueeze(1)).sum(2)) / (1 + w_sum_a)
+        acc1_new = (acc1 + (w.unsqueeze(-1) * acc2.unsqueeze(1)).sum(2)) / (1 + w_sum_a)
 
-        return vel1, vel2, acc1, acc2, w          # return w for later masking
+        # defenders ------------------------------------------------------
+        w_t      = w.transpose(1, 2)                              # (B,N,N)
+        w_sum_d  = w_t.sum(2, keepdim=True)
+        vel2_new = (vel2 + (w_t.unsqueeze(-1) * vel1.unsqueeze(1)).sum(2)) / (1 + w_sum_d)
+        acc2_new = (acc2 + (w_t.unsqueeze(-1) * acc1.unsqueeze(1)).sum(2)) / (1 + w_sum_d)
+
+        return vel1_new, vel2_new, acc1_new, acc2_new, w           # w reused later
 
     # ------------------------------------------------------------------
     def _inelastic_impulse(self, pos_all, vel_all):
@@ -618,10 +630,10 @@ class FootballGame(BaseGame):
             pos1 = (pos1 + vel1 * dt_s).clamp(-self.BOX_POS, self.BOX_POS)
             pos2 = (pos2 + vel2 * dt_s).clamp(-self.BOX_POS, self.BOX_POS)
 
-            # 4) inelastic impulse (no bounce) ------------------------
-            vel_all = torch.cat([vel1, vel2], 1)
-            vel_all = self._inelastic_impulse(torch.cat([pos1, pos2], 1), vel_all)
-            vel1, vel2 = vel_all[:, :self.N], vel_all[:, self.N:]
+            # # 4) inelastic impulse (no bounce) ------------------------
+            # vel_all = torch.cat([vel1, vel2], 1)
+            # vel_all = self._inelastic_impulse(torch.cat([pos1, pos2], 1), vel_all)
+            # vel1, vel2 = vel_all[:, :self.N], vel_all[:, self.N:]
 
             # 5) commit state ----------------------------------------
             self.x = self._merge_state(pos1, vel1, pos2, vel2)
