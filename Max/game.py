@@ -328,12 +328,6 @@ def default_football_spec(N: int = 11,
                           box_pos: float = 1.2,
                           box_vel: float = 5.0,
                           box_acc: float = 3.0,
-                          rep_strength: float = 0.01,
-                          rep_power: int = 2,
-                          # contact -------------------------------
-                          rep_cutoff:   float = 0.25,
-                          rep_k:        float = 25.0,
-                          rep_c:        float = 2.0,
                           # merge ---------------------------------
                           merge_radius: float = 0.25,
                           merge_sigma:  float = 0.05,
@@ -352,7 +346,7 @@ def default_football_spec(N: int = 11,
         "device"     : device,
         # roster size / information-set size --------------------
         "N_PLAYERS"  : N,
-        "n_types"    : N,               # hidden ball–carrier index
+        "n_types"    : 2,               # inside-power vs edge-sweep
         # hard bounds ------------------------------------------
         "BOX_POS"    : box_pos,
         "BOX_VEL"    : box_vel,
@@ -360,17 +354,17 @@ def default_football_spec(N: int = 11,
         # quadratic running-cost weights -----------------------
         "R1"         : eye,             # offence weight matrix
         "R2"         : eye,             # defence weight matrix
-        # repulsive-force hyper-parameters ---------------------
-        "REP_STRENGTH": rep_strength,   # θ
-        "REP_POWER"   : rep_power,      # p  (even integer)
-        "REP_CUTOFF"  : rep_cutoff,     # r_cut
-        "REP_K"      : rep_k,         # ← spring constant
-        "REP_C"      : rep_c,         # ← damping coefficient
         "MERGE_RADIUS": merge_radius,
         "MERGE_SIGMA" : merge_sigma,
         "LINEUP_OFF_X": lineup_off_x,
         "LINEUP_DEF_X": lineup_def_x,
         "n_substeps" : n_substeps,    # substeps to simulate contact
+        # ---------------- payoff table -----------------
+        #  columns:  [ α_y  ]  (sign controls bias)
+        "P_OFFSETS": torch.tensor([
+            [-0.8],   # type-0  inside-power :  −0.8 |y|
+            [+0.8],   # type-1  edge-sweep   :  +0.8 |y|
+        ]),
     }
 
 
@@ -404,15 +398,9 @@ class FootballGame(BaseGame):
         self.R1        = spec["R1"].to(self.device)
         self.R2        = spec["R2"].to(self.device)
 
-        # repulsive potential params -----------------------------------
-        self.theta     = spec["REP_STRENGTH"]
-        self.rep_power = spec["REP_POWER"]
-        self.rep_k      = spec["REP_K"]
-        self.rep_c      = spec["REP_C"]
-        self.r_cut      = spec["REP_CUTOFF"]
-        self.r_cut2     = self.r_cut ** 2
         self.merge_r2   = spec["MERGE_RADIUS"] ** 2
         self.merge_sig2 = spec["MERGE_SIGMA"]  ** 2
+        self.P_OFFSETS  = spec["P_OFFSETS"].to(self.device)  # shape (I,1)
 
         self.n_substeps = spec["n_substeps"]   # physics sub-steps per user-visible dt
 
@@ -423,6 +411,11 @@ class FootballGame(BaseGame):
         self.STATE_DIM  = 8 * self.N               # [pos,vel] × 2 teams
         self.BELIEF_DIM = self.I - 1               # Δᴵ → ℝ^{I-1}
         self.FEAT_DIM   = self.STATE_DIM + self.BELIEF_DIM
+
+        self.PLAY_NAMES = spec.get(
+            "PLAY_NAMES",
+            ["Inside Power", "Edge Sweep"]          # len = self.I
+        )
 
         super().__init__(horizon=self.T, dt=self.dt,
                          n_types=self.I, device=self.device)
@@ -489,47 +482,47 @@ class FootballGame(BaseGame):
     # -----------------------------------------------------
     #   Physics helpers
     # -----------------------------------------------------
-    def _compute_repulsion(self, pos_all: Tensor) -> Tensor:
-        """
-        Smooth pair-wise repulsive acceleration for every player
-        (both teams together).  
-        pos_all: (B, 2N, 2) – concatenated positions.
-        Returns a tensor of the same leading shape with Δ̈ contributions.
-        """
-        B, M, _ = pos_all.shape                            # M = 2N
-        diff    = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)     # (B,M,M,2)
-        dist2   = (diff**2).sum(-1) + self.eps                      # (B,M,M)
+    # def _compute_repulsion(self, pos_all: Tensor) -> Tensor:
+    #     """
+    #     Smooth pair-wise repulsive acceleration for every player
+    #     (both teams together).  
+    #     pos_all: (B, 2N, 2) – concatenated positions.
+    #     Returns a tensor of the same leading shape with Δ̈ contributions.
+    #     """
+    #     B, M, _ = pos_all.shape                            # M = 2N
+    #     diff    = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)     # (B,M,M,2)
+    #     dist2   = (diff**2).sum(-1) + self.eps                      # (B,M,M)
 
-        mask    = (dist2 < self.r_cut2) & (dist2 > 0)              # ignore self-pairs
-        # magnitude: θ p / (‖Δx‖²)^{p/2+1}
-        mag     = self.theta * self.rep_power * mask / (dist2 ** (self.rep_power/2 + 1))  # (B,M,M)
-        force   = (mag.unsqueeze(-1) * diff).sum(2)                # (B,M,2) signed
+    #     mask    = (dist2 < self.r_cut2) & (dist2 > 0)              # ignore self-pairs
+    #     # magnitude: θ p / (‖Δx‖²)^{p/2+1}
+    #     mag     = self.theta * self.rep_power * mask / (dist2 ** (self.rep_power/2 + 1))  # (B,M,M)
+    #     force   = (mag.unsqueeze(-1) * diff).sum(2)                # (B,M,2) signed
 
-        return force                                               # acceleration contribution
+    #     return force                                               # acceleration contribution
 
-    def _contact_acc(self, pos_all: Tensor, vel_all: Tensor) -> Tensor:
-        """
-        Kelvin–Voigt spring + dashpot between OPPOSING players only.
-        Return accelerations (B,2N,2).  Masses are 1.
-        """
-        diff  = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)       # (B,M,M,2)
-        dist2 = (diff**2).sum(-1) + 1e-6
-        mask  = (dist2 < self.r_cut2).float() * self.opp_mask     # include only opponents
+    # def _contact_acc(self, pos_all: Tensor, vel_all: Tensor) -> Tensor:
+    #     """
+    #     Kelvin–Voigt spring + dashpot between OPPOSING players only.
+    #     Return accelerations (B,2N,2).  Masses are 1.
+    #     """
+    #     diff  = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)       # (B,M,M,2)
+    #     dist2 = (diff**2).sum(-1) + 1e-6
+    #     mask  = (dist2 < self.r_cut2).float() * self.opp_mask     # include only opponents
 
-        r     = dist2.sqrt()
-        n     = diff / r.unsqueeze(-1)
+    #     r     = dist2.sqrt()
+    #     n     = diff / r.unsqueeze(-1)
 
-        # spring -------------------------
-        delta = (self.r_cut - r).clamp(min=0.0)
-        F_s   = self.rep_k * delta.unsqueeze(-1) * n
+    #     # spring -------------------------
+    #     delta = (self.r_cut - r).clamp(min=0.0)
+    #     F_s   = self.rep_k * delta.unsqueeze(-1) * n
 
-        # dash-pot -----------------------
-        v_rel = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)
-        vn    = (v_rel * n).sum(-1, keepdim=True).clamp(max=0.0)  # only approaching
-        F_d   = self.rep_c * vn * n
+    #     # dash-pot -----------------------
+    #     v_rel = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)
+    #     vn    = (v_rel * n).sum(-1, keepdim=True).clamp(max=0.0)  # only approaching
+    #     F_d   = self.rep_c * vn * n
 
-        F = (F_s + F_d) * mask.unsqueeze(-1)
-        return F.sum(2)               # (B,M,2)
+    #     F = (F_s + F_d) * mask.unsqueeze(-1)
+    #     return F.sum(2)               # (B,M,2)
 
     # ------------------------------------------------------------------
     def _merge(self,
@@ -563,20 +556,20 @@ class FootballGame(BaseGame):
         return vel1_new, vel2_new, acc1_new, acc2_new, w           # w reused later
 
     # ------------------------------------------------------------------
-    def _inelastic_impulse(self, pos_all, vel_all):
-        diff  = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)
-        dist2 = (diff**2).sum(-1) + 1e-6
-        mask  = (dist2 < self.merge_r2).float() * self.opp_mask   # only within merge radius
-        r     = dist2.sqrt()
-        n     = diff / r.unsqueeze(-1)
+    # def _inelastic_impulse(self, pos_all, vel_all):
+    #     diff  = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)
+    #     dist2 = (diff**2).sum(-1) + 1e-6
+    #     mask  = (dist2 < self.merge_r2).float() * self.opp_mask   # only within merge radius
+    #     r     = dist2.sqrt()
+    #     n     = diff / r.unsqueeze(-1)
 
-        v_rel = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)
-        vn    = (v_rel * n).sum(-1, keepdim=True)
-        approaching = (vn < 0).float() * mask.unsqueeze(-1)
+    #     v_rel = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)
+    #     vn    = (v_rel * n).sum(-1, keepdim=True)
+    #     approaching = (vn < 0).float() * mask.unsqueeze(-1)
 
-        j = -vn * approaching * 0.5                               # masses=1, e=0
-        vel_all = vel_all + (j * n).sum(2) - (j * n).sum(1)
-        return vel_all
+    #     j = -vn * approaching * 0.5                               # masses=1, e=0
+    #     vel_all = vel_all + (j * n).sum(2) - (j * n).sum(1)
+    #     return vel_all
 
     # -----------------------------------------------------
     def _running_loss(self, u1: Tensor, u2: Tensor) -> Tensor:
@@ -588,15 +581,30 @@ class FootballGame(BaseGame):
         return 0.5 * (u1_cost - u2_cost) * self.dt         # (B,)
 
     def _terminal_loss(self) -> Tensor:
+        # """
+        # Offence wants its hidden ball-carrier to reach high +x.
+        # P1 cost   = −x_{i★}(T)  
+        # P2 cost   = +x_{i★}(T)  (implicit in minimax difference)
+        # """
+        # pos1, _, _, _ = self._split_state(self.x)          # (B,N,2)
+        # batch_idx      = torch.arange(self.B, device=self.device)
+        # xi_star        = pos1[batch_idx, self.i_star, 0]   # grab x-coord
+        # return -xi_star                                    # (B,)
         """
-        Offence wants its hidden ball-carrier to reach high +x.
-        P1 cost   = −x_{i★}(T)  
-        P2 cost   = +x_{i★}(T)  (implicit in minimax difference)
+        Two hidden pay-off cases:
+          type-0 : inside-power  ->  -( x − 0.8 |y| )
+          type-1 : edge-sweep    ->  -( x + 0.8 |y| )
         """
         pos1, _, _, _ = self._split_state(self.x)          # (B,N,2)
-        batch_idx      = torch.arange(self.B, device=self.device)
-        xi_star        = pos1[batch_idx, self.i_star, 0]   # grab x-coord
-        return -xi_star                                    # (B,)
+        batch_idx     = torch.arange(self.B, device=self.device)
+
+        x_ball = pos1[batch_idx, self.i_star, 0]           # (B,)
+        y_ball = pos1[batch_idx, self.i_star, 1]           # (B,)
+
+        alpha  = self.P_OFFSETS[self.i_star, 0]            # +0.8 or –0.8
+
+        term   = -(x_ball + alpha * torch.abs(y_ball))     # offence maximises
+        return term  
 
     # -----------------------------------------------------
     def step(self, u1: Tensor, u2: Tensor):
@@ -621,8 +629,10 @@ class FootballGame(BaseGame):
                     torch.zeros_like(vel1), torch.zeros_like(vel2))
 
             # 2) total accel = controls unless merged -----------------
-            acc1_tot = torch.where(w.sum(2, keepdim=True) > 0, acc1_c, u1)
-            acc2_tot = torch.where(w.sum(1, keepdim=True) > 0, acc2_c, u2)
+            mask_a = (w.sum(2, keepdim=True) > 0)          # (B,N,1)
+            mask_d = (w.sum(1, keepdim=False) > 0).unsqueeze(-1)  # (B,N,1)
+            acc1_tot = torch.where(mask_a, acc1_c, u1)
+            acc2_tot = torch.where(mask_d, acc2_c, u2)
 
             # 3) semi-implicit Euler ---------------------------------
             vel1 = (vel1 + acc1_tot * dt_s).clamp(-self.BOX_VEL, self.BOX_VEL)
@@ -712,96 +722,72 @@ class FootballGame(BaseGame):
     #  Visualisation helper  (no diff_env dependency)
     # -----------------------------------------------------
     def visualize_episode(self,
-                          p1_policy: nn.Module,
-                          p2_policy: nn.Module,
-                          *,
-                          fps: int = 6):
+                        p1_policy: nn.Module,
+                        p2_policy: nn.Module,
+                        fps: int = 6):
         """
-        Return an HTML animation of a single episode.
-
-        • Offence players  : red   • current ball-carrier : gold ★
-        • Defence players  : blue
-        • Lower subplot    : public belief P2 assigns to the *true* carrier index.
+        Render a single play.
+        • Red  = offence players
+        • Blue = defence players
+        • Text label (upper‐left) shows the hidden play type.
         """
         import matplotlib.pyplot as plt
         from matplotlib import animation
         from IPython.display import HTML
-        import torch
         import numpy as np
+        import torch
 
-        # ---------- initialise the simulator copy -------------------
-        self.reset(batch_size=1)                 # single episode
-        obs      = {"x": self.x, "p": self.p, "t": self.t}
-        i_star   = int(self.i_star.item())       # scalar for convenience
+        # ---------- run one episode -------------------------------
+        self.reset(batch_size=1)
+        obs     = {"x": self.x, "p": self.p, "t": self.t}
+        i_star  = int(self.i_star.item())               # 0 or 1
+        play_nm = self.PLAY_NAMES[i_star]
 
-        pos1_hist, pos2_hist = [], []            # list of (N,2)
-        p_hist, t_hist       = [], []
-
-        # ---------- rollout ----------------------------------------
+        traj_off, traj_def = [], []
         for k in range(self.K):
             with torch.no_grad():
-                u1, misc1 = p1_policy.action_only(obs, self.i_star, k)
-                u2, _     = p2_policy.action_only(obs, k)
-
-            # advance physics & belief
+                u1, _ = p1_policy.action_only(obs, self.i_star, k)
+                u2, _ = p2_policy.action_only(obs, k)
             self.step(u1, u2)
-            self.p = self._bayes_update(self.p, misc1["A"], misc1["j"])
-
-            # cache for plotting
             pos1, _, pos2, _ = self._split_state(self.x)
-            pos1_hist.append(pos1[0].cpu().detach().numpy())   # (N,2)
-            pos2_hist.append(pos2[0].cpu().detach().numpy())
-            p_hist.append(self.p[0, i_star].item())
-            t_hist.append((k + 1) * self.dt)
-
+            traj_off.append(pos1[0].cpu().detach().numpy())      # (N,2)
+            traj_def.append(pos2[0].cpu().detach().numpy())
             obs = {"x": self.x, "p": self.p, "t": self.t}
 
-        # prepend t = 0 state
-        p_hist  = [1.0 / self.I] + p_hist
-        t_hist  = [0.0]          + t_hist
-        pos0_1, _, pos0_2, _ = self._split_state(self.x * 0 + self.x)  # cheap clone
-        pos1_hist = [pos0_1[0].cpu().detach().numpy()] + pos1_hist
-        pos2_hist = [pos0_2[0].cpu().detach().numpy()] + pos2_hist
+        traj_off.insert(0, traj_off[0])   # duplicate first for frame 0
+        traj_def.insert(0, traj_def[0])
 
-        # ---------- build the Matplotlib animation ------------------
-        fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(6, 9),
-                                       gridspec_kw={"height_ratios": [4, 1]})
-        # playing field
-        ax0.set_xlim(-self.BOX_POS - .2, self.BOX_POS + .2)
-        ax0.set_ylim(-self.BOX_POS - .2, self.BOX_POS + .2)
-        ax0.set_aspect("equal")
-        ax0.set_title("Differentiable Football – one running play")
+        # ---------- build animation --------------------------------
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.set_xlim(-self.BOX_POS - .2, self.BOX_POS + .2)
+        ax.set_ylim(-self.BOX_POS - .2, self.BOX_POS + .2)
+        ax.set_aspect("equal")
+        ax.set_title("Differentiable Football – play demo")
 
-        # scatter handles
-        p1_sc = ax0.scatter([], [], s=80, c="red", label="Offence")
-        p2_sc = ax0.scatter([], [], s=80, c="blue", label="Defence")
-        bc_sc = ax0.scatter([], [], s=140, marker="*", c="gold",
-                            edgecolors="black", linewidths=0.7,
-                            label="Ball-carrier")
-        ax0.legend(loc="upper right")
+        # text label for the hidden type
+        txt = ax.text(0.02, 0.95,
+                    f"Play: {play_nm}",
+                    transform=ax.transAxes,
+                    fontsize=12, fontweight="bold",
+                    verticalalignment="top")
 
-        # lower plot: belief
-        ax1.set_xlim(0, self.T)
-        ax1.set_ylim(-.05, 1.05)
-        ax1.set_xlabel("time (s)")
-        ax1.set_ylabel(f"belief p[i★={i_star}]")
-        ax1.plot(t_hist, p_hist, color="black")
+        scat_off = ax.scatter([], [], s=80, c="red", label="Offence")
+        scat_def = ax.scatter([], [], s=80, c="blue", label="Defence")
+        ax.legend(loc="upper right")
 
         def init():
-            p1_sc.set_offsets(np.empty((0, 2)))
-            p2_sc.set_offsets(np.empty((0, 2)))
-            bc_sc.set_offsets(np.empty((0, 2)))
-            return p1_sc, p2_sc, bc_sc
+            scat_off.set_offsets(np.empty((0, 2)))   # ← was []  (❌)
+            scat_def.set_offsets(np.empty((0, 2)))   # ← was []
+            return scat_off, scat_def, txt
 
         def update(frame):
-            p1_sc.set_offsets(pos1_hist[frame])
-            p2_sc.set_offsets(pos2_hist[frame])
-            bc_sc.set_offsets(pos1_hist[frame][i_star])   # ball-carrier
-            return p1_sc, p2_sc, bc_sc
+            scat_off.set_offsets(traj_off[frame])
+            scat_def.set_offsets(traj_def[frame])
+            return scat_off, scat_def, txt
 
         ani = animation.FuncAnimation(fig, update,
-                                      frames=len(t_hist),
-                                      init_func=init, blit=True,
-                                      interval=1000 / fps)
+                                    frames=len(traj_off),
+                                    interval=1000 / fps,
+                                    init_func=init, blit=True)
         plt.close(fig)
         return HTML(ani.to_jshtml())
