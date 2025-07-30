@@ -613,12 +613,18 @@ class FootballGame(BaseGame):
         return base + self.tackle_pen * tackled.float()
 
 
-    def _tackle_flag(self, pos_off, pos_def, w_merge):
-        ball = pos_off[:, self.BALL_IDX]                           # (B,2)
-        dist2 = ((pos_def - ball.unsqueeze(1))**2).sum(-1)         # (B,N)
-        close = dist2 < self.tackle_r2                             # within radius
-        engaged = (w_merge.sum(1) > 0)                             # defender blocked?
-        return (close & ~engaged).any(-1)                          # (B,)
+    def _tackle_flag(self, pos_off, pos_def, w_merge, k: float = 80.0):
+        ball   = pos_off[:, self.BALL_IDX]                         # (B,2)
+        dist2  = ((pos_def - ball.unsqueeze(1))**2).sum(-1)        # (B,N)
+        # smooth close indicator in (0,1)
+        close  = torch.sigmoid(k * (self.tackle_r2 - dist2))       # (B,N)
+
+        engaged_any   = (w_merge.sum(1) > 0).float()               # (B,N) 0/1
+        engaged_by_rb = (w_merge[:, self.BALL_IDX] > 0).float()
+
+        free_threat = close * (1.0 - engaged_any + engaged_by_rb)  # (B,N)
+        # use softmax-like reduction
+        return 1.0 - torch.exp(-free_threat.sum(-1))               # (B,) in (0,1)
     
     # -----------------------------------------------------
     def step(self, u1: Tensor, u2: Tensor):
