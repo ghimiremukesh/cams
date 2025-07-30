@@ -325,11 +325,11 @@ def default_football_spec(N: int = 11,
                           dt: float = 0.05,
                           device: str = "cpu",
                           *,
-                          box_pos: float = 1.2,
+                          box_pos: float = 1.6,
                           box_vel: float = 5.0,
                           box_acc: float = 3.0,
                           # merge ---------------------------------
-                          merge_radius: float = 0.25,
+                          merge_radius: float = 0.15,
                           merge_sigma:  float = 0.05,
                           # line-up offset ------------------------
                           lineup_off_x: float = -1.2,   # offence x-coord
@@ -358,6 +358,9 @@ def default_football_spec(N: int = 11,
         "MERGE_SIGMA" : merge_sigma,
         "LINEUP_OFF_X": lineup_off_x,
         "LINEUP_DEF_X": lineup_def_x,
+        "TACKLE_RADIUS": 0.20,      # when a defender inside this w/out blocker ⇒ tackle
+        "TACKLE_PENALTY": 5.0,      # extra −yards if tackled (makes loss big) 
+        "RB_DEPTH"   : 0.25,        # depth of RB position
         "n_substeps" : n_substeps,    # substeps to simulate contact
         # ---------------- payoff table -----------------
         #  columns:  [ α_y  ]  (sign controls bias)
@@ -401,6 +404,10 @@ class FootballGame(BaseGame):
         self.merge_r2   = spec["MERGE_RADIUS"] ** 2
         self.merge_sig2 = spec["MERGE_SIGMA"]  ** 2
         self.P_OFFSETS  = spec["P_OFFSETS"].to(self.device)  # shape (I,1)
+        self.tackle_r2   = spec["TACKLE_RADIUS"]**2
+        self.tackle_pen  = spec["TACKLE_PENALTY"]  
+        self.RB_DEPTH   = spec["RB_DEPTH"]
+        self.BALL_IDX = 3          # RB in a 5-man offence
 
         self.n_substeps = spec["n_substeps"]   # physics sub-steps per user-visible dt
 
@@ -456,13 +463,25 @@ class FootballGame(BaseGame):
 
         B, N, dev = self.B, self.N, self.device
 
-        # line-up: vertical string centred at y=0, x = −1 / +1
-        idx        = torch.arange(N, device=dev)          # 0 … N−1
-        y_coords   = (idx - (N - 1) / 2) / (N - 1)        # ≈ −½ … +½
-        off_x = self.spec["LINEUP_OFF_X"]          # e.g., −1.2
-        def_x = self.spec["LINEUP_DEF_X"]          # e.g., −0.4
-        pos1_row = torch.stack([torch.full_like(y_coords, off_x),  y_coords], dim=-1)
-        pos2_row = torch.stack([torch.full_like(y_coords, def_x),  y_coords], dim=-1)
+        # ---------- exact I-formation coordinates -------------------------
+        y_off = torch.tensor([0.00,  0.30, -0.30, 0.00,  0.60], device=dev)  # offence
+        y_def = torch.tensor([0.20, -0.20,  0.50, -0.50, 0.00], device=dev)  # defence
+
+        off_x  = self.spec["LINEUP_OFF_X"]            # −1.20
+        def_x  = self.spec["LINEUP_DEF_X"]            # −0.40
+        rb_dx  = self.spec["RB_DEPTH"]                # 0.25
+
+        # offence x-coordinates: RB deeper, others on LOS
+        x_off = torch.full_like(y_off, off_x)
+        x_off[self.BALL_IDX] = off_x - rb_dx          # tailback depth
+
+        # defence x-coordinates (DLs on LOS, LBs 0.2 m deeper, S deepest)
+        x_def = torch.tensor([def_x, def_x,
+                            def_x - 0.20, def_x - 0.20,
+                            def_x + 0.30], device=dev)
+
+        pos1_row = torch.stack([x_off, y_off], -1)
+        pos2_row = torch.stack([x_def, y_def], -1)
 
         pos1       = pos1_row.unsqueeze(0).repeat(B, 1, 1)   # (B,N,2)
         pos2       = pos2_row.unsqueeze(0).repeat(B, 1, 1)
@@ -554,7 +573,7 @@ class FootballGame(BaseGame):
         acc2_new = (acc2 + (w_t.unsqueeze(-1) * acc1.unsqueeze(1)).sum(2)) / (1 + w_sum_d)
 
         return vel1_new, vel2_new, acc1_new, acc2_new, w           # w reused later
-
+    
     # ------------------------------------------------------------------
     # def _inelastic_impulse(self, pos_all, vel_all):
     #     diff  = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)
@@ -578,34 +597,29 @@ class FootballGame(BaseGame):
         """
         u1_cost = (u1 @ self.R1 @ u1.T).diag()
         u2_cost = (u2 @ self.R2 @ u2.T).diag()
-        return 0.5 * (u1_cost - u2_cost) * self.dt         # (B,)
+        return 0.001 * 0.5 * (u1_cost - u2_cost) * self.dt         # (B,)
 
-    def _terminal_loss(self) -> Tensor:
-        # """
-        # Offence wants its hidden ball-carrier to reach high +x.
-        # P1 cost   = −x_{i★}(T)  
-        # P2 cost   = +x_{i★}(T)  (implicit in minimax difference)
-        # """
-        # pos1, _, _, _ = self._split_state(self.x)          # (B,N,2)
-        # batch_idx      = torch.arange(self.B, device=self.device)
-        # xi_star        = pos1[batch_idx, self.i_star, 0]   # grab x-coord
-        # return -xi_star                                    # (B,)
-        """
-        Two hidden pay-off cases:
-          type-0 : inside-power  ->  -( x − 0.8 |y| )
-          type-1 : edge-sweep    ->  -( x + 0.8 |y| )
-        """
-        pos1, _, _, _ = self._split_state(self.x)          # (B,N,2)
-        batch_idx     = torch.arange(self.B, device=self.device)
+    def _terminal_loss(self):
+        pos1, pos2 = self._split_state(self.x)[0], self._split_state(self.x)[2]
+        batch      = torch.arange(self.B, device=self.device)
 
-        x_ball = pos1[batch_idx, self.i_star, 0]           # (B,)
-        y_ball = pos1[batch_idx, self.i_star, 1]           # (B,)
+        x_ball = pos1[batch, self.BALL_IDX, 0]     # ← use fixed ball index
+        y_ball = pos1[batch, self.BALL_IDX, 1]
 
-        alpha  = self.P_OFFSETS[self.i_star, 0]            # +0.8 or –0.8
+        alpha  = self.P_OFFSETS[self.i_star, 0]    # ±0.8
+        base   = -(x_ball + alpha*torch.abs(y_ball))
 
-        term   = -(x_ball + alpha * torch.abs(y_ball))     # offence maximises
-        return term  
+        tackled = self._tackle_flag(pos1, pos2, self.w_last)
+        return base + self.tackle_pen * tackled.float()
 
+
+    def _tackle_flag(self, pos_off, pos_def, w_merge):
+        ball = pos_off[:, self.BALL_IDX]                           # (B,2)
+        dist2 = ((pos_def - ball.unsqueeze(1))**2).sum(-1)         # (B,N)
+        close = dist2 < self.tackle_r2                             # within radius
+        engaged = (w_merge.sum(1) > 0)                             # defender blocked?
+        return (close & ~engaged).any(-1)                          # (B,)
+    
     # -----------------------------------------------------
     def step(self, u1: Tensor, u2: Tensor):
         # --- normalise shapes ----------------------------------------
@@ -627,6 +641,7 @@ class FootballGame(BaseGame):
             vel1, vel2, acc1_c, acc2_c, w = self._merge(
                     pos1, pos2, vel1, vel2,
                     torch.zeros_like(vel1), torch.zeros_like(vel2))
+            self.w_last = w.detach()      # save for terminal-loss check
 
             # 2) total accel = controls unless merged -----------------
             mask_a = (w.sum(2, keepdim=True) > 0)          # (B,N,1)
@@ -726,10 +741,9 @@ class FootballGame(BaseGame):
                         p2_policy: nn.Module,
                         fps: int = 6):
         """
-        Render a single play.
-        • Red  = offence players
-        • Blue = defence players
-        • Text label (upper‐left) shows the hidden play type.
+        Top: trajectories (red offence, blue defence).
+        Bottom: public belief p(t)[ i★ ] where i★ is the offence’s
+                hidden play type.
         """
         import matplotlib.pyplot as plt
         from matplotlib import animation
@@ -737,57 +751,106 @@ class FootballGame(BaseGame):
         import numpy as np
         import torch
 
-        # ---------- run one episode -------------------------------
+        # ---------- rollout one episode -----------------------------
         self.reset(batch_size=1)
         obs     = {"x": self.x, "p": self.p, "t": self.t}
-        i_star  = int(self.i_star.item())               # 0 or 1
+        i_star  = int(self.i_star.item())
         play_nm = self.PLAY_NAMES[i_star]
 
-        traj_off, traj_def = [], []
+        # ---- store true initial state ------------------------------
+        pos1, _, pos2, _ = self._split_state(self.x)
+        traj_off = [pos1[0].cpu().numpy()]       # frame 0 = initial
+        traj_def = [pos2[0].cpu().numpy()]
+        p_traj   = [self.P0[0, i_star].item()]   # initial belief
+        t_traj   = [0.0]                         # time 0
+        merge_hist  = [np.zeros(self.N, dtype=bool)]   # ★ frame-0: nobody merged
+        tackle_hist = [False]                          # ★ frame-0: not tackled
+
         for k in range(self.K):
             with torch.no_grad():
-                u1, _ = p1_policy.action_only(obs, self.i_star, k)
+                u1, misc1 = p1_policy.action_only(obs, self.i_star, k)
                 u2, _ = p2_policy.action_only(obs, k)
+
+            self.p = self._bayes_update(self.p, misc1["A"], misc1["j"])
             self.step(u1, u2)
+
+            merge_mask = (self.w_last.sum(2) > 0)[0].cpu().numpy()       # (N,) bool
+            tackled    = self._tackle_flag(pos1, pos2, self.w_last)[0].item()
+            merge_hist.append(merge_mask)
+            tackle_hist.append(tackled)
+
             pos1, _, pos2, _ = self._split_state(self.x)
-            traj_off.append(pos1[0].cpu().detach().numpy())      # (N,2)
+            traj_off.append(pos1[0].cpu().detach().numpy())   # (N,2)
             traj_def.append(pos2[0].cpu().detach().numpy())
+
+            # belief history
+            p_traj.append(self.p[0, i_star].cpu().item())
+            t_traj.append((k + 1) * self.dt)
+
             obs = {"x": self.x, "p": self.p, "t": self.t}
 
-        traj_off.insert(0, traj_off[0])   # duplicate first for frame 0
-        traj_def.insert(0, traj_def[0])
+        # prepend t = 0 frame ---------------------------------------
+        # traj_off.insert(0, traj_off[0])
+        # traj_def.insert(0, traj_def[0])
+        # p_traj  = [self.P0[0, i_star].item()] + p_traj
+        # t_traj  = [0.0] + t_traj
 
-        # ---------- build animation --------------------------------
-        fig, ax = plt.subplots(figsize=(6, 6))
-        ax.set_xlim(-self.BOX_POS - .2, self.BOX_POS + .2)
-        ax.set_ylim(-self.BOX_POS - .2, self.BOX_POS + .2)
-        ax.set_aspect("equal")
-        ax.set_title("Differentiable Football – play demo")
+        # ---------- figure & axes ----------------------------------
+        fig, (ax_top, ax_bot) = plt.subplots(
+            2, 1, figsize=(6, 9),
+            gridspec_kw={"height_ratios": [4, 1]}
+        )
+        # ---- top ---------------------------------------------------
+        ax_top.set_xlim(-self.BOX_POS - .2, self.BOX_POS + .2)
+        ax_top.set_ylim(-self.BOX_POS - .2, self.BOX_POS + .2)
+        ax_top.set_aspect("equal")
+        ax_top.set_title(f"Play demo – {play_nm}")
+        ax_top.scatter([],[],c="red",    label="Free attacker")
+        ax_top.scatter([],[],c="orange", label="Merged attacker")
+        ax_top.scatter([],[],c="black",  label="RB tackled")
 
-        # text label for the hidden type
-        txt = ax.text(0.02, 0.95,
-                    f"Play: {play_nm}",
-                    transform=ax.transAxes,
-                    fontsize=12, fontweight="bold",
-                    verticalalignment="top")
+        scat_off = ax_top.scatter([], [], s=80, c="red",  label="Offence")
+        scat_def = ax_top.scatter([], [], s=80, c="blue", label="Defence")
+        rb_star  = ax_top.scatter([], [], s=140, marker="*", c="gold",
+                                edgecolors="black", linewidths=0.6,
+                                label="RB (ball)")
+        ax_top.legend(loc="upper right")
 
-        scat_off = ax.scatter([], [], s=80, c="red", label="Offence")
-        scat_def = ax.scatter([], [], s=80, c="blue", label="Defence")
-        ax.legend(loc="upper right")
+        # ---- bottom ------------------------------------------------
+        ax_bot.set_xlim(0, self.T)
+        ax_bot.set_ylim(-0.05, 1.05)
+        ax_bot.set_xlabel("time (s)")
+        ax_bot.set_ylabel(f"belief  p[{i_star}]")
+        ax_bot.plot(t_traj, p_traj, color="black")
 
+        # ---------- artists init / update ---------------------------
         def init():
-            scat_off.set_offsets(np.empty((0, 2)))   # ← was []  (❌)
-            scat_def.set_offsets(np.empty((0, 2)))   # ← was []
-            return scat_off, scat_def, txt
+            empty = np.empty((0, 2))
+            scat_off.set_offsets(empty)
+            scat_def.set_offsets(empty)
+            rb_star.set_offsets(empty)
+            return scat_off, scat_def, rb_star
 
         def update(frame):
-            scat_off.set_offsets(traj_off[frame])
-            scat_def.set_offsets(traj_def[frame])
-            return scat_off, scat_def, txt
+            offs = traj_off[frame]
+            colors = []
+            for idx in range(self.N):
+                if tackle_hist[frame] and idx == self.BALL_IDX:      # RB tackled → black
+                    colors.append("black")
+                elif merge_hist[frame][idx]:                         # merged → orange
+                    colors.append("orange")
+                else:                                                # free attacker
+                    colors.append("red")
+            scat_off.set_offsets(offs)
+            scat_off.set_color(colors)
 
-        ani = animation.FuncAnimation(fig, update,
-                                    frames=len(traj_off),
-                                    interval=1000 / fps,
-                                    init_func=init, blit=True)
+            scat_def.set_offsets(traj_def[frame])
+            rb_star.set_offsets(offs[self.BALL_IDX])                 # highlight RB
+            return scat_off, scat_def, rb_star
+                
+        ani = animation.FuncAnimation(
+            fig, update, frames=len(traj_off),
+            init_func=init, blit=True, interval=1000 / fps
+        )
         plt.close(fig)
         return HTML(ani.to_jshtml())
