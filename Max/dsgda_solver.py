@@ -135,7 +135,7 @@ class DSGDASolver:
 
                 # dynamics + running cost
                 env.step(u1, u2)
-                running_acc = running_acc + env._running_loss(u1, u2)
+                running_acc = running_acc + env._running_loss(u1, u2, env._tackle_flag(env.w_last))
 
                 # Bayes update (vectorised)
                 A_soft = torch.softmax(A_logits, dim=-1)

@@ -11,6 +11,7 @@ import numpy as np
 import torch
 from torch import Tensor
 import torch.nn as nn
+import math
 
 # ---------------------------------------------------------------------------
 class BaseGame(nn.Module):
@@ -330,7 +331,6 @@ def default_football_spec(N: int = 11,
                           box_acc: float = 3.0,
                           # merge ---------------------------------
                           merge_radius: float = 0.15,
-                          merge_sigma:  float = 0.05,
                           # line-up offset ------------------------
                           lineup_off_x: float = -1.2,   # offence x-coord
                           lineup_def_x: float = -0.4,   # defence x-coord
@@ -355,10 +355,8 @@ def default_football_spec(N: int = 11,
         "R1"         : eye,             # offence weight matrix
         "R2"         : eye,             # defence weight matrix
         "MERGE_RADIUS": merge_radius,
-        "MERGE_SIGMA" : merge_sigma,
         "LINEUP_OFF_X": lineup_off_x,
         "LINEUP_DEF_X": lineup_def_x,
-        "TACKLE_RADIUS": 0.20,      # when a defender inside this w/out blocker ⇒ tackle
         "TACKLE_PENALTY": 5.0,      # extra −yards if tackled (makes loss big) 
         "RB_DEPTH"   : 0.25,        # depth of RB position
         "n_substeps" : n_substeps,    # substeps to simulate contact
@@ -402,12 +400,12 @@ class FootballGame(BaseGame):
         self.R2        = spec["R2"].to(self.device)
 
         self.merge_r2   = spec["MERGE_RADIUS"] ** 2
-        self.merge_sig2 = spec["MERGE_SIGMA"]  ** 2
         self.P_OFFSETS  = spec["P_OFFSETS"].to(self.device)  # shape (I,1)
-        self.tackle_r2   = spec["TACKLE_RADIUS"]**2
         self.tackle_pen  = spec["TACKLE_PENALTY"]  
         self.RB_DEPTH   = spec["RB_DEPTH"]
         self.BALL_IDX = 3          # RB in a 5-man offence
+        self.w_tackle_thr = self.merge_r2
+        self.k_tackle     = 60.0          # steepness; 60 ≈ 4 cm logistic band
 
         self.n_substeps = spec["n_substeps"]   # physics sub-steps per user-visible dt
 
@@ -557,9 +555,7 @@ class FootballGame(BaseGame):
         diff   = pos1.unsqueeze(2) - pos2.unsqueeze(1)            # (B,N,N,2)
         dist2  = (diff.square()).sum(-1)                          # (B,N,N)
 
-        gaussian = torch.exp(-dist2 / (2 * self.merge_sig2))      # soft bandwidth
-        inside   = (dist2 < self.merge_r2).float()                # hard cut-off
-        w        = gaussian * inside                              # out-of-place ✔️
+        w = torch.sigmoid(self.k_tackle * (self.w_tackle_thr - dist2))      # soft bandwidth
 
         # attackers ------------------------------------------------------
         w_sum_a  = w.sum(2, keepdim=True)                         # (B,N,1)
@@ -591,14 +587,20 @@ class FootballGame(BaseGame):
     #     return vel_all
 
     # -----------------------------------------------------
-    def _running_loss(self, u1: Tensor, u2: Tensor) -> Tensor:
+    def _running_loss(self,
+                    u1: Tensor, u2: Tensor,
+                    tackled: Tensor) -> Tensor:
         """
-        Quadratic control effort difference, scaled by dt.
+        Quadratic control effort + tackle penalty per step.
+        tackled : (B,) bool for the CURRENT macro-step.
         """
-        u1_cost = (u1 @ self.R1 @ u1.T).diag()
-        u2_cost = (u2 @ self.R2 @ u2.T).diag()
-        return 0.001 * 0.5 * (u1_cost - u2_cost) * self.dt         # (B,)
+        cost_u1 = (u1 @ self.R1 @ u1.T).diag()
+        cost_u2 = (u2 @ self.R2 @ u2.T).diag()
+        ctrl    = 0.001 * 0.5 * (cost_u1 - cost_u2) * self.dt       # made this negligible for now
+        tack    = self.tackle_pen * tackled
+        return ctrl + tack
 
+    # -----------------------------------------------------
     def _terminal_loss(self):
         pos1, pos2 = self._split_state(self.x)[0], self._split_state(self.x)[2]
         batch      = torch.arange(self.B, device=self.device)
@@ -609,22 +611,22 @@ class FootballGame(BaseGame):
         alpha  = self.P_OFFSETS[self.i_star, 0]    # ±0.8
         base   = -(x_ball + alpha*torch.abs(y_ball))
 
-        tackled = self._tackle_flag(pos1, pos2, self.w_last)
-        return base + self.tackle_pen * tackled.float()
+        return base
 
+    # ------------------------------------------------------------------
+    def _tackle_flag(self, w_merge: torch.Tensor) -> torch.Tensor:
+        """
+        Differentiable tackle probability  p ∈ (0,1)  for each batch element.
+        A defender contributes with logistic weight; OR is implemented as
+        1 - Π(1 - p_i) so gradients pass through every term.
+        """
+        # merge weights with the RB  →  (B, N)
+        w_rb = w_merge[:, self.BALL_IDX]
 
-    def _tackle_flag(self, pos_off, pos_def, w_merge, k: float = 80.0):
-        ball   = pos_off[:, self.BALL_IDX]                         # (B,2)
-        dist2  = ((pos_def - ball.unsqueeze(1))**2).sum(-1)        # (B,N)
-        # smooth close indicator in (0,1)
-        close  = torch.sigmoid(k * (self.tackle_r2 - dist2))       # (B,N)
+        # probabilistic OR  (smooth)
+        p_tackle = 1.0 - torch.prod(1.0 - w_rb, dim=-1)                    # (B,)
 
-        engaged_any   = (w_merge.sum(1) > 0).float()               # (B,N) 0/1
-        engaged_by_rb = (w_merge[:, self.BALL_IDX] > 0).float()
-
-        free_threat = close * (1.0 - engaged_any + engaged_by_rb)  # (B,N)
-        # use softmax-like reduction
-        return 1.0 - torch.exp(-free_threat.sum(-1))               # (B,) in (0,1)
+        return p_tackle                        # differentiable scalar
     
     # -----------------------------------------------------
     def step(self, u1: Tensor, u2: Tensor):
@@ -647,13 +649,15 @@ class FootballGame(BaseGame):
             vel1, vel2, acc1_c, acc2_c, w = self._merge(
                     pos1, pos2, vel1, vel2,
                     torch.zeros_like(vel1), torch.zeros_like(vel2))
-            self.w_last = w.detach()      # save for terminal-loss check
+            self.w_last = w      # save for terminal-loss check
 
             # 2) total accel = controls unless merged -----------------
-            mask_a = (w.sum(2, keepdim=True) > 0)          # (B,N,1)
-            mask_d = (w.sum(1, keepdim=False) > 0).unsqueeze(-1)  # (B,N,1)
-            acc1_tot = torch.where(mask_a, acc1_c, u1)
-            acc2_tot = torch.where(mask_d, acc2_c, u2)
+            # ---- smooth merge probabilities ---------------------------------
+            p_merge_a = 1.0 - torch.exp(-w.sum(2, keepdim=True))   # (B,N,1) attackers
+            p_merge_d = 1.0 - torch.exp(-w.sum(1).unsqueeze(-1))   # (B,N,1)            
+            # ---- convex blend of accelerations ------------------------------
+            acc1_tot = p_merge_a * acc1_c + (1.0 - p_merge_a) * u1  # offence
+            acc2_tot = p_merge_d * acc2_c + (1.0 - p_merge_d) * u2  # defence
 
             # 3) semi-implicit Euler ---------------------------------
             vel1 = (vel1 + acc1_tot * dt_s).clamp(-self.BOX_VEL, self.BOX_VEL)
@@ -690,7 +694,10 @@ class FootballGame(BaseGame):
 
             # ---- physics & cost ------------------------------------
             self.step(u1, u2)
-            running_costs.append(self._running_loss(u1, u2))
+            p_tackle_now = self._tackle_flag(self.w_last)           # after _merge
+            running_costs.append(
+                self._running_loss(u1, u2, p_tackle_now)
+            )
 
             # ---- belief update (same mechanism as Hexner) ----------
             self.p = self._bayes_update(self.p, misc1["A"], misc1["j"])
@@ -780,10 +787,10 @@ class FootballGame(BaseGame):
             self.p = self._bayes_update(self.p, misc1["A"], misc1["j"])
             self.step(u1, u2)
 
-            merge_mask = (self.w_last.sum(2) > 0)[0].cpu().numpy()       # (N,) bool
-            tackled    = self._tackle_flag(pos1, pos2, self.w_last)[0].item()
+            merge_mask = (self.w_last.sum(2) > 0.5)[0].cpu().numpy()       # (N,) bool
+            tackled    = self._tackle_flag(self.w_last)[0].item()
             merge_hist.append(merge_mask)
-            tackle_hist.append(tackled)
+            tackle_hist.append(tackled > 0.5)
 
             pos1, _, pos2, _ = self._split_state(self.x)
             traj_off.append(pos1[0].cpu().detach().numpy())   # (N,2)
@@ -795,11 +802,6 @@ class FootballGame(BaseGame):
 
             obs = {"x": self.x, "p": self.p, "t": self.t}
 
-        # prepend t = 0 frame ---------------------------------------
-        # traj_off.insert(0, traj_off[0])
-        # traj_def.insert(0, traj_def[0])
-        # p_traj  = [self.P0[0, i_star].item()] + p_traj
-        # t_traj  = [0.0] + t_traj
 
         # ---------- figure & axes ----------------------------------
         fig, (ax_top, ax_bot) = plt.subplots(
