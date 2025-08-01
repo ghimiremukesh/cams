@@ -12,6 +12,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 import math
+import torch.nn.functional as F
 
 # ---------------------------------------------------------------------------
 class BaseGame(nn.Module):
@@ -596,7 +597,7 @@ class FootballGame(BaseGame):
         """
         cost_u1 = (u1 @ self.R1 @ u1.T).diag()
         cost_u2 = (u2 @ self.R2 @ u2.T).diag()
-        ctrl    = 0.001 * 0.5 * (cost_u1 - cost_u2) * self.dt       # made this negligible for now
+        ctrl    = 0.1 * 0.5 * (cost_u1 - cost_u2) * self.dt       # made this small to encourage movement
         tack    = self.tackle_pen * tackled
         return ctrl + tack
 
@@ -605,12 +606,18 @@ class FootballGame(BaseGame):
         pos1, pos2 = self._split_state(self.x)[0], self._split_state(self.x)[2]
         batch      = torch.arange(self.B, device=self.device)
 
+        eta = 0.6          # LOS-cross importance
+        beta = 5.0         # softplus steepness
+
         x_ball = pos1[batch, self.BALL_IDX, 0]     # ← use fixed ball index
         y_ball = pos1[batch, self.BALL_IDX, 1]
 
-        alpha  = self.P_OFFSETS[self.i_star, 0]    # ±0.8
-        base   = -(x_ball + alpha*torch.abs(y_ball))
+        alpha = self.P_OFFSETS[self.i_star, 0]     # ±0.8
+        base  = -(x_ball + alpha*torch.abs(y_ball))
 
+        # add forward-drive term ONLY for sweep (type-1)
+        bonus = eta * F.softplus(-x_ball, beta=beta)
+        base  = torch.where(self.i_star==1, base - bonus, base)
         return base
 
     # ------------------------------------------------------------------
@@ -752,7 +759,10 @@ class FootballGame(BaseGame):
     def visualize_episode(self,
                         p1_policy: nn.Module,
                         p2_policy: nn.Module,
-                        fps: int = 6):
+                        fps: int = 6,
+                        force_type: int | None = None,          
+                        return_animation: bool = False):        
+
         """
         Top: trajectories (red offence, blue defence).
         Bottom: public belief p(t)[ i★ ] where i★ is the offence’s
@@ -764,8 +774,11 @@ class FootballGame(BaseGame):
         import numpy as np
         import torch
 
-        # ---------- rollout one episode -----------------------------
+        # ---------- reset & optionally set the type -----------------
         self.reset(batch_size=1)
+        if force_type is not None:
+            self.i_star.fill_(force_type)           # override random draw
+
         obs     = {"x": self.x, "p": self.p, "t": self.t}
         i_star  = int(self.i_star.item())
         play_nm = self.PLAY_NAMES[i_star]
@@ -787,7 +800,7 @@ class FootballGame(BaseGame):
             self.p = self._bayes_update(self.p, misc1["A"], misc1["j"])
             self.step(u1, u2)
 
-            merge_mask = (self.w_last.sum(2) > 0.5)[0].cpu().numpy()       # (N,) bool
+            merge_mask = (self.w_last.sum(2) > 0.1)[0].cpu().numpy()       # (N,) bool
             tackled    = self._tackle_flag(self.w_last)[0].item()
             merge_hist.append(merge_mask)
             tackle_hist.append(tackled > 0.5)
@@ -855,10 +868,48 @@ class FootballGame(BaseGame):
             scat_def.set_offsets(traj_def[frame])
             rb_star.set_offsets(offs[self.BALL_IDX])                 # highlight RB
             return scat_off, scat_def, rb_star
-                
+        
+        # ---------------------------------------------------------------
         ani = animation.FuncAnimation(
             fig, update, frames=len(traj_off),
             init_func=init, blit=True, interval=1000 / fps
         )
         plt.close(fig)
+
+        if return_animation:
+            return HTML(ani.to_jshtml()), ani       # NEW
+        
         return HTML(ani.to_jshtml())
+    
+    # ---------------------------------------------------------------
+    def save_type_animations(self,
+                            p1_pol: nn.Module,
+                            p2_pol: nn.Module,
+                            iteration: int,
+                            fps: int = 6,
+                            root_dir: str = "animations") -> list[str]:
+        """
+        Render one rollout for every hidden type and save each as a gif.
+        Returns a list of file paths written.
+        """
+        import os, datetime
+        from pathlib import Path
+
+        stamp  = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        outdir = Path(root_dir) / f"solve_{stamp}"
+        outdir.mkdir(parents=True, exist_ok=True)
+
+        gif_paths = []
+        for i in range(self.I):
+            html, ani = self.visualize_episode(
+                p1_pol, p2_pol, fps=fps,
+                force_type=i,
+                return_animation=True)              # needs the raw ani
+
+            fname = (f"iter{iteration:04d}_type{i}_"
+                    f"{self.PLAY_NAMES[i].replace(' ', '')}.gif")
+            gif_path = outdir / fname
+            ani.save(gif_path, writer="pillow", fps=fps)
+            gif_paths.append(str(gif_path))
+
+        return gif_paths
