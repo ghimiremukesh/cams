@@ -240,7 +240,7 @@ class HexnerGame(BaseGame):
                 print(f"  row {r}:", np.round(A_mat[r], 3))
 
             # prototype action table μ  (shared across rows)
-            mu_tbl = misc1["μ"][0].cpu().numpy()              # (I,2)
+            mu_tbl = misc1["μ"][0].cpu().detach().numpy()              # (I,2)
             print("Global prototype actions μ :")
             for idx, vec in enumerate(mu_tbl):
                 print(f"  idx {idx}: {np.round(vec, 3)}")
@@ -589,8 +589,7 @@ class FootballGame(BaseGame):
 
     # -----------------------------------------------------
     def _running_loss(self,
-                    u1: Tensor, u2: Tensor,
-                    tackled: Tensor) -> Tensor:
+                    u1: Tensor, u2: Tensor) -> Tensor:
         """
         Quadratic control effort + tackle penalty per step.
         tackled : (B,) bool for the CURRENT macro-step.
@@ -598,6 +597,7 @@ class FootballGame(BaseGame):
         cost_u1 = (u1 @ self.R1 @ u1.T).diag()
         cost_u2 = (u2 @ self.R2 @ u2.T).diag()
         ctrl    = 0.1 * 0.5 * (cost_u1 - cost_u2) * self.dt       # made this small to encourage movement
+        tackled = self._tackle_flag(self.w_last)
         tack    = self.tackle_pen * tackled
         return ctrl + tack
 

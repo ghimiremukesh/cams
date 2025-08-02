@@ -131,11 +131,11 @@ class DSGDASolver:
 
                 # P1 & P2 continuous controls
                 u1 = μ_proto[torch.arange(S, device=self.device), j_k]       # (S,2)
-                u2, _ = self.p2.action_only(obs, k)                      # (S,2)
+                u2 = self.p2.forward(obs, k)                      # (S,2)
 
                 # dynamics + running cost
                 env.step(u1, u2)
-                running_acc = running_acc + env._running_loss(u1, u2, env._tackle_flag(env.w_last))
+                running_acc = running_acc + env._running_loss(u1, u2)
 
                 # Bayes update (vectorised)
                 A_soft = torch.softmax(A_logits, dim=-1)
