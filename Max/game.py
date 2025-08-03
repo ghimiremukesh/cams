@@ -224,7 +224,7 @@ class HexnerGame(BaseGame):
 
         p_traj, t_traj, p1_xy, p2_xy = [], [], [], []
 
-        print("\n========== DEBUG ROLL-OUT ==========")
+        # print("\n========== DEBUG ROLL-OUT ==========")
         for step in range(self.K):
             # ---------- policy queries ------------------------------------------
             with torch.no_grad():
@@ -232,23 +232,23 @@ class HexnerGame(BaseGame):
                 u2, _     = p2_policy.action_only(obs, step)
 
             # ---------- diagnostics ---------------------------------------------
-            print(f"\n[t = {step*self.dt: .2f} s]")
+            # print(f"\n[t = {step*self.dt: .2f} s]")
             # full probability matrix A  (I×I)
-            A_mat = misc1["A"][0].cpu().detach().numpy()           # (I,I)
-            print("P1 probability matrix  A :")
-            for r in range(self.I):
-                print(f"  row {r}:", np.round(A_mat[r], 3))
+            # A_mat = misc1["A"][0].cpu().detach().numpy()           # (I,I)
+            # print("P1 probability matrix  A :")
+            # for r in range(self.I):
+            #     print(f"  row {r}:", np.round(A_mat[r], 3))
 
             # prototype action table μ  (shared across rows)
-            mu_tbl = misc1["μ"][0].cpu().detach().numpy()              # (I,2)
-            print("Global prototype actions μ :")
-            for idx, vec in enumerate(mu_tbl):
-                print(f"  idx {idx}: {np.round(vec, 3)}")
+            # mu_tbl = misc1["μ"][0].cpu().detach().numpy()              # (I,2)
+            # print("Global prototype actions μ :")
+            # for idx, vec in enumerate(mu_tbl):
+            #     print(f"  idx {idx}: {np.round(vec, 3)}")
 
-            j = misc1["j"].item()
-            print("Chosen prototype idx :", j)
-            print("u₁ action       :", u1.squeeze(0).cpu().detach().numpy())
-            print("u₂ action       :", u2.squeeze(0).cpu().detach().numpy())
+            # j = misc1["j"].item()
+            # print("Chosen prototype idx :", j)
+            # print("u₁ action       :", u1.squeeze(0).cpu().detach().numpy())
+            # print("u₂ action       :", u2.squeeze(0).cpu().detach().numpy())
 
             # advance dynamics & belief ---------------------------------
             self.step(u1, u2)
@@ -261,7 +261,7 @@ class HexnerGame(BaseGame):
             p_traj.append(self.p[0, 0].item())
             t_traj.append((step + 1) * self.dt)
 
-        print("====================================\n")
+        # print("====================================\n")
 
         # ------------------------------------------------------------------------
         #  Build the Matplotlib animation
