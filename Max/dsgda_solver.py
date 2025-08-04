@@ -135,34 +135,42 @@ class DSGDASolver:
 
         return reachable
 
+    # ---------------------------------------------------------------
     def _count_active_p1(self):
         """
-        Return the exact number of *optimised* P1 parameters:
-            (# non-pure AND reachable nodes) × block_size
-        Implementation: build reachability on CPU to avoid CUDA index asserts.
+        Count *reachable* parameters of Player-1, distinguishing
+            • non-pure nodes,
+            • first-pure nodes,
+            • deeper pure nodes.
         """
-        I, K = self.I, self.K
-        block = I * (I + self.game.ACTION_DIM)
+        I, d, K = self.I, self.game.ACTION_DIM, self.K
+        block_nonpure = I * (I + d)
+        block_first   = I * d
+        block_deep    = d
 
-        # ---------- reachability masks on CPU ------------------------------
-        reachable = [set() for _ in range(K)]     # Python sets of indices
-        reachable[0].add(0)                       # root
-
+        # ---------- reachable indices on CPU to avoid CUDA asserts ---
+        reachable = [set() for _ in range(K)]
+        reachable[0].add(0)
         for i_star in range(I):
-            seq = self._enumerate_paths(i_star).cpu()     # (S,K) on CPU
+            seq = self._enumerate_paths(i_star).cpu()      # (S,K)
             idx = 0
             for k in range(1, K):
-                idx = idx * I + seq[:, k-1]               # vectorised on CPU
+                idx = idx * I + seq[:, k-1]
                 reachable[k].update(idx.tolist())
-                # idx is torch.Tensor; .tolist() fine for small K, I
 
-        # ---------- count ---------------------------------------------------
+        # ---------- parameter tally -----------------------------------
         active = 0
         for k in range(K):
-            mask_pure = self.p1._pure[k].cpu()            # (I**k,) bool
+            mask_pure = self.p1._pure[k].cpu()             # BoolTensor
             for idx in reachable[k]:
-                if not mask_pure[idx]:
-                    active += block
+                if not mask_pure[idx]:                     # non-pure
+                    active += block_nonpure
+                else:
+                    if k == 0:                             # root can’t be here
+                        continue
+                    parent_idx = idx // I
+                    parent_pure = self.p1._pure[k-1][parent_idx].item()
+                    active += block_deep if parent_pure else block_first
         return active
 
     # ------------------------------------------------------------------
@@ -267,11 +275,7 @@ class DSGDASolver:
         g_p2 = torch.stack([m.norm() for m in self.buf_p2.m]).mean().item()
 
         # count active P1 parameters
-        active = 0
-        block  = self.I * (self.I + self.game.ACTION_DIM)
-        for k, mask in enumerate(self.p1._pure):        # mask.shape = (I**k,)
-            n_nonpure = (~mask).sum().item()
-            active   += n_nonpure * block
+        active = self._count_active_p1()
         
         rec = {
             "iter"      : len(self.meta),

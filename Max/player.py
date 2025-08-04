@@ -155,7 +155,7 @@ class P1ExplicitStrategy(nn.Module):
             self.params.append(
                 nn.Parameter(init_scale * torch.randn(dim, device=self.dev))
             )
-            default_pure = (t == self.K) or (t == self.K - 1)
+            default_pure = (t == self.K)
             self._pure.append(
                 torch.full((n_states,), default_pure,
                            dtype=torch.bool, device=self.dev)
@@ -199,12 +199,12 @@ class P1ExplicitStrategy(nn.Module):
             parent_pure = self._pure[k-1][parent_idx].item()
 
         # -------- reversible purity check ---------------------------------
+        last_decision_layer = (k == self.K - 1)      # one above leaves
         if self._pure[k][idx]:
             # Only test distance if *parent is not pure*
-            if not parent_pure:
+            if (not last_decision_layer) and (not parent_pure):
                 feat_now = self._feat(obs).mean(0)          # (FEAT_DIM,)
                 cent     = self._centroid[k][idx]
-
                 if torch.isnan(cent).any():
                     self._centroid[k][idx].copy_(feat_now)  # first visit
                 elif torch.dist(feat_now, cent) > self.feat_eps:
@@ -213,12 +213,17 @@ class P1ExplicitStrategy(nn.Module):
 
         # ---------- choose behaviour ------------------------------------
         if self._pure[k][idx]:
-            # deterministic identity logits; broadcast first μ-row
             Λσ = torch.full((self.I, self.I), -50.0, device=self.dev)
             diag = torch.arange(self.I, device=self.dev)
             Λσ[diag, diag] = 50.0
-            _, μ_tbl0 = self._slice(k, idx)
-            μ_tbl = μ_tbl0[0].expand(self.I, -1)
+
+            _, μ_tbl0 = self._slice(k, idx)          # (I, d)
+
+            # distinguish first-pure vs deeper-pure
+            if parent_pure:
+                μ_tbl = μ_tbl0[0].expand(self.I, -1)     # deeper pure → one vector
+            else:
+                μ_tbl = μ_tbl0                           # first pure → I distinct rows
         else:
             Λσ, μ_tbl = self._slice(k, idx)
 
@@ -227,10 +232,7 @@ class P1ExplicitStrategy(nn.Module):
             "A_logits": Λσ.expand(B, -1, -1).contiguous(),
             "μ":        μ_tbl.expand(B, -1, -1).contiguous()
         }
-
-    # ---------- auto_collapse unchanged, but call after solver step -----
-    # (use the bottom-up version you already integrated)
-
+    
     # ------------------------------------------------------------------
     def action_only(self,
                     obs   : dict[str, Tensor],
