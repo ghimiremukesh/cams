@@ -181,29 +181,38 @@ class P1ExplicitStrategy(nn.Module):
             • else                 → non-pure (full block)
         """
 
+        # ---------- raw slices -------------------------------------------
         Λ_out, μ_out = self._slice_blocks(k, idx_tensor)
 
-        if prune:
-            I, d, dev = self.I, self.d, self.dev
-            S = idx_tensor.size(0)
-            # -------- determine purity from belief entropy ----------------
-            ent = -(belief * (belief + 1e-12).log()).sum(-1)      # (S,)
-            deeper_mask = (ent < self.ent_thr) & (k < self.K - 1)  # exclude last layer
+        I, d, dev = self.I, self.d, self.dev
+        S         = idx_tensor.size(0)
 
-            # last decision layer: force identity Λ but KEEP I×d μ table
-            last_layer_mask = (k == self.K - 1)
-            pure_any = deeper_mask | last_layer_mask
-            if pure_any.any():
-                id_logits = torch.full((I, I), -50.0, device=dev)
-                id_logits[torch.arange(I), torch.arange(I)] = 50.0
-                Λ_out[pure_any] = id_logits
+        # ---------- 1) enforce identity on the *last* layer --------------
+        if k == self.K - 1:
+            id_logits = torch.full((I, I), -50.0, device=dev)
+            id_logits[torch.arange(I), torch.arange(I)] = 50.0
+            Λ_out[:] = id_logits        # all paths at layer K-1
 
-            # deeper-pure → broadcast a single μ vector
+            # NOTE: we **do not** collapse μ here – keep I×d prototypes
+
+        # ---------- 2) optional deeper-pure collapse ---------------------
+        if prune and k < self.K - 1:
+            # belief entropy for each path
+            ent = -(belief * (belief + 1e-12).log()).sum(-1)    # (S,)
+            deeper_mask = ent < self.ent_thr                   # (S,) bool
+
             if deeper_mask.any():
-                μ_single = μ_out[deeper_mask, 0].unsqueeze(1)     # (S_p,1,d)
+                # (a) broadcast single μ
+                μ_single = μ_out[deeper_mask, 0].unsqueeze(1)  # (S_p,1,d)
                 μ_out[deeper_mask] = μ_single.expand(-1, I, -1)
 
+                # (b) identity logits for those rows
+                id_logits = torch.full((I, I), -50.0, device=dev)
+                id_logits[torch.arange(I), torch.arange(I)] = 50.0
+                Λ_out[deeper_mask] = id_logits
+
         return {"A_logits": Λ_out, "μ": μ_out}
+
 
     # ---------- single-path wrapper for visualisation ----------------
     def forward(self, obs, k, history=None):
@@ -214,7 +223,7 @@ class P1ExplicitStrategy(nn.Module):
             idx = idx * self.I + j
         idx_t = torch.tensor([idx], device=self.dev)
         belief = obs["p"][:1]
-        out = self.forward_batch(obs, k, idx_t, belief)
+        out = self.forward_batch(obs, k, idx_t, belief, prune=False)
         return out
 
     # ------------------------------------------------------------------

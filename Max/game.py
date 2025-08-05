@@ -6,13 +6,15 @@ Define base game and all its extensions:
 
 from __future__ import annotations
 from typing import Dict, Any, List, Tuple
-
 import numpy as np
 import torch
 from torch import Tensor
 import torch.nn as nn
 import math
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
+from matplotlib import animation
+from IPython.display import HTML
 
 # ---------------------------------------------------------------------------
 class BaseGame(nn.Module):
@@ -203,105 +205,202 @@ class HexnerGame(BaseGame):
     def summary(self, stats: Dict[str, float]):
         print(f"[Iter {stats['iter']:04d}]  L={stats['loss']:+.3f}  |g₁|={stats['g1']:.3f}  |g₂|={stats['g2']:.3f}")
 
-    # ------------------------------------------------------------------
-    #  Visualisation helper (no diff_env dependency)
-    # ------------------------------------------------------------------
-    def visualize_episode(self, p1_policy, p2_policy, fps: int = 5):
+    # # ------------------------------------------------------------------
+    # #  Visualisation helper (no diff_env dependency)
+    # # ------------------------------------------------------------------
+    # def visualize_episode(self, p1_policy, p2_policy, fps: int = 5):
+    #     """
+    #     Return an HTML animation of a single episode using the game's own
+    #     dynamics and the supplied time-indexed policies.
+    #     """
+    #     import numpy as np
+    #     import matplotlib.pyplot as plt
+    #     from matplotlib import animation
+    #     from IPython.display import HTML
+    #     import torch
+
+    #     # ---------- initialise -----------------------------------------
+    #     self.reset()
+    #     obs = {"x": self.x, "p": self.p, "t": self.t}
+    #     i_star = self.i_star
+    #     p_traj   = [self.p[0, 0].item()]            # belief at t = 0
+    #     t_traj   = [0.0]
+    #     p1_xy    = [self.x[0, 0:2].cpu().numpy()]   # P1 pos at t = 0
+    #     p2_xy    = [self.x[0, 4:6].cpu().numpy()]   # P2 pos at t = 0
+
+    #     # print("\n========== DEBUG ROLL-OUT ==========")
+    #     for step in range(self.K):
+    #         # ---------- policy queries ------------------------------------------
+    #         with torch.no_grad():
+    #             u1, misc1 = p1_policy.action_only(obs, i_star, step)
+    #             u2, _     = p2_policy.action_only(obs, step)
+
+    #         # ---------- diagnostics ---------------------------------------------
+    #         print(f"\n[t = {step*self.dt: .2f} s]")
+    #         # full probability matrix A  (I×I)
+    #         A_mat = misc1["A"][0].cpu().detach().numpy()           # (I,I)
+    #         print("P1 probability matrix  A :")
+    #         for r in range(self.I):
+    #             print(f"  row {r}:", np.round(A_mat[r], 3))
+
+    #         # prototype action table μ  (shared across rows)
+    #         mu_tbl = misc1["μ"][0].cpu().detach().numpy()              # (I,2)
+    #         print("Global prototype actions μ :")
+    #         for idx, vec in enumerate(mu_tbl):
+    #             print(f"  idx {idx}: {np.round(vec, 3)}")
+
+    #         j = misc1["j"].item()
+    #         print("Chosen prototype idx :", j)
+    #         print("u₁ action       :", u1.squeeze(0).cpu().detach().numpy())
+    #         print("u₂ action       :", u2.squeeze(0).cpu().detach().numpy())
+
+    #         # advance dynamics & belief ---------------------------------
+    #         self.step(u1, u2)
+    #         self.p = self._bayes_update(self.p, misc1["A"], misc1["j"])
+
+    #         # cache for plotting ----------------------------------------
+    #         obs = {"x": self.x, "p": self.p, "t": self.t}
+    #         p1_xy.append(self.x[0, 0:2].cpu().detach().numpy())
+    #         p2_xy.append(self.x[0, 4:6].cpu().detach().numpy())
+    #         p_traj.append(self.p[0, 0].item())
+    #         t_traj.append((step + 1) * self.dt)
+
+    #     # print("====================================\n")
+
+    #     # ------------------------------------------------------------------------
+    #     #  Build the Matplotlib animation
+    #     # ------------------------------------------------------------------------
+    #     p_belief = np.array(p_traj)               # prepend t=0 value
+    #     times    = np.array(t_traj)
+    #     p1_xy    = np.vstack(p1_xy)
+    #     p2_xy    = np.vstack(p2_xy)
+
+    #     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(5, 8),
+    #                                 gridspec_kw={"height_ratios": [3, 1]})
+    #     # ----- top: trajectories ----------------------------------------------
+    #     ax0.set_xlim(-self.BOX_POS - .2, self.BOX_POS + .2)
+    #     ax0.set_ylim(-self.BOX_POS - .2, self.BOX_POS + .2)
+    #     ax0.set_aspect("equal")
+    #     ax0.set_title("Hexner – trajectories")
+
+    #     # target markers
+    #     for idx, tgt in enumerate(self.Z_TARGETS.cpu().numpy()):
+    #         star_kw = dict(marker="*", ms=14,
+    #                     color="black" if idx == i_star.item() else "grey")
+    #         ax0.plot(tgt[0], tgt[1], **star_kw)
+
+    #     p1_sc = ax0.scatter([], [], s=80, c="red")
+    #     p2_sc = ax0.scatter([], [], s=80, c="blue")
+
+    #     # ----- bottom: belief ---------------------------------------------------
+    #     ax1.set_xlim(0, self.T)
+    #     ax1.set_ylim(-.05, 1.05)
+    #     ax1.set_xlabel("time (s)")
+    #     ax1.set_ylabel("public belief p[type-0]")
+    #     ax1.plot(times, p_belief, color="blue")
+    #     ax1.axhline(y=float(i_star.item() == 0), color="black", ls="--")
+    #     ax1.set_title("Belief trajectory")
+
+    #     def init():
+    #         p1_sc.set_offsets(np.empty((0, 2)))
+    #         p2_sc.set_offsets(np.empty((0, 2)))
+    #         return p1_sc, p2_sc
+
+    #     def update(frame):
+    #         p1_sc.set_offsets(p1_xy[frame])
+    #         p2_sc.set_offsets(p2_xy[frame])
+    #         return p1_sc, p2_sc
+
+    #     ani = animation.FuncAnimation(fig, update, frames=len(times),
+    #                                 init_func=init, blit=True,
+    #                                 interval=1000 / fps)
+    #     plt.close(fig)
+    #     return HTML(ani.to_jshtml())
+
+    # ---------------------------------------------------------------
+    def visualize_most_likely(self, p1, p2, fps: int = 6):
         """
-        Return an HTML animation of a single episode using the game's own
-        dynamics and the supplied time-indexed policies.
+        Render one HTML animation per hidden type i★, following the
+        *most probable* public-message sequence under the current P1 policy.
+        Returns a list [HTML_type0, HTML_type1, …].
         """
-        import numpy as np
-        import matplotlib.pyplot as plt
-        from matplotlib import animation
-        from IPython.display import HTML
-        import torch
+        dev  = self.device
+        outs = []
 
-        # ---------- initialise -----------------------------------------
-        self.reset()
-        obs = {"x": self.x, "p": self.p, "t": self.t}
-        i_star = self.i_star
-        p_traj   = [self.p[0, 0].item()]            # belief at t = 0
-        t_traj   = [0.0]
-        p1_xy    = [self.x[0, 0:2].cpu().numpy()]   # P1 pos at t = 0
-        p2_xy    = [self.x[0, 4:6].cpu().numpy()]   # P2 pos at t = 0
-
-        # print("\n========== DEBUG ROLL-OUT ==========")
-        for step in range(self.K):
-            # ---------- policy queries ------------------------------------------
-            with torch.no_grad():
-                u1, misc1 = p1_policy.action_only(obs, i_star, step)
-                u2, _     = p2_policy.action_only(obs, step)
-
-            # ---------- diagnostics ---------------------------------------------
-            print(f"\n[t = {step*self.dt: .2f} s]")
-            # full probability matrix A  (I×I)
-            A_mat = misc1["A"][0].cpu().detach().numpy()           # (I,I)
-            print("P1 probability matrix  A :")
-            for r in range(self.I):
-                print(f"  row {r}:", np.round(A_mat[r], 3))
-
-            # prototype action table μ  (shared across rows)
-            mu_tbl = misc1["μ"][0].cpu().detach().numpy()              # (I,2)
-            print("Global prototype actions μ :")
-            for idx, vec in enumerate(mu_tbl):
-                print(f"  idx {idx}: {np.round(vec, 3)}")
-
-            j = misc1["j"].item()
-            print("Chosen prototype idx :", j)
-            print("u₁ action       :", u1.squeeze(0).cpu().detach().numpy())
-            print("u₂ action       :", u2.squeeze(0).cpu().detach().numpy())
-
-            # advance dynamics & belief ---------------------------------
-            self.step(u1, u2)
-            self.p = self._bayes_update(self.p, misc1["A"], misc1["j"])
-
-            # cache for plotting ----------------------------------------
+        for i_star in range(self.I):
+            self.reset()
             obs = {"x": self.x, "p": self.p, "t": self.t}
-            p1_xy.append(self.x[0, 0:2].cpu().detach().numpy())
-            p2_xy.append(self.x[0, 4:6].cpu().detach().numpy())
-            p_traj.append(self.p[0, 0].item())
-            t_traj.append((step + 1) * self.dt)
 
-        # print("====================================\n")
+            # --- caches for plotting ------------------------------------
+            traj_p1, traj_p2 = [self.x[0, 0:2].cpu().numpy()], [self.x[0, 4:6].cpu().numpy()]
+            p_belief = [self.p[0, 0].item()]
+            times     = [0.0]
+            history = [] 
+            for k in range(self.K):
+                with torch.no_grad():
+                    out = p1.forward(obs, k, history)          # (B=1) no history needed
+                    A   = torch.softmax(out["A_logits"][0], dim=-1)   # (I,I)
+                    row = A[i_star]                                   # row i★
+                    j_k = torch.argmax(row).item()                    # max-prob col
 
-        # ------------------------------------------------------------------------
-        #  Build the Matplotlib animation
-        # ------------------------------------------------------------------------
-        p_belief = np.array(p_traj)               # prepend t=0 value
-        times    = np.array(t_traj)
-        p1_xy    = np.vstack(p1_xy)
-        p2_xy    = np.vstack(p2_xy)
+                    # continuous actions
+                    μ_tbl = out["μ"][0]                               # (I,d)
+                    u1 = μ_tbl[j_k].unsqueeze(0)                      # (1,d)
+                    u2 = p2.forward(obs, k)                           # (1,d)
 
+                history.append(j_k)
+
+                # dynamics & belief update ------------------------------
+                self.step(u1, u2)
+                self.p = self._bayes_update(self.p, A.unsqueeze(0), torch.tensor([j_k], device=dev))
+
+                # log for plot
+                obs = {"x": self.x, "p": self.p, "t": self.t}
+                traj_p1.append(self.x[0, 0:2].cpu().detach().numpy())
+                traj_p2.append(self.x[0, 4:6].cpu().detach().numpy())
+                p_belief.append(self.p[0, 0].item())
+                times.append((k+1) * self.dt)
+
+            # --- make animation (reuse most of your existing code) ------
+            html = self._make_hexner_animation(np.array(traj_p1),
+                                        np.array(traj_p2),
+                                        np.array(times),
+                                        np.array(p_belief),
+                                        i_star, fps)
+            outs.append(html)
+
+        return outs
+
+
+    # helper that reuses your earlier Matplotlib setup
+    def _make_hexner_animation(self, p1_xy, p2_xy, times, p_belief,
+                               i_star, fps):
         fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(5, 8),
                                     gridspec_kw={"height_ratios": [3, 1]})
-        # ----- top: trajectories ----------------------------------------------
-        ax0.set_xlim(-self.BOX_POS - .2, self.BOX_POS + .2)
-        ax0.set_ylim(-self.BOX_POS - .2, self.BOX_POS + .2)
+        ax0.set_xlim(-self.BOX_POS-.2, self.BOX_POS+.2)
+        ax0.set_ylim(-self.BOX_POS-.2, self.BOX_POS+.2)
         ax0.set_aspect("equal")
-        ax0.set_title("Hexner – trajectories")
+        ax0.set_title(f"Most-likely path – type {i_star}")
 
-        # target markers
         for idx, tgt in enumerate(self.Z_TARGETS.cpu().numpy()):
-            star_kw = dict(marker="*", ms=14,
-                        color="black" if idx == i_star.item() else "grey")
-            ax0.plot(tgt[0], tgt[1], **star_kw)
+            ax0.plot(tgt[0], tgt[1], marker="*", ms=14,
+                    color="black" if idx==i_star else "grey")
 
         p1_sc = ax0.scatter([], [], s=80, c="red")
         p2_sc = ax0.scatter([], [], s=80, c="blue")
 
-        # ----- bottom: belief ---------------------------------------------------
         ax1.set_xlim(0, self.T)
         ax1.set_ylim(-.05, 1.05)
         ax1.set_xlabel("time (s)")
-        ax1.set_ylabel("public belief p[type-0]")
+        ax1.set_ylabel("belief p[type-0]")
         ax1.plot(times, p_belief, color="blue")
-        ax1.axhline(y=float(i_star.item() == 0), color="black", ls="--")
+        ax1.axhline(y=float(i_star==0), color="black", ls="--")
         ax1.set_title("Belief trajectory")
 
         def init():
-            p1_sc.set_offsets(np.empty((0, 2)))
-            p2_sc.set_offsets(np.empty((0, 2)))
+            empty = np.empty((0,2))
+            p1_sc.set_offsets(empty)
+            p2_sc.set_offsets(empty)
             return p1_sc, p2_sc
 
         def update(frame):
@@ -311,9 +410,18 @@ class HexnerGame(BaseGame):
 
         ani = animation.FuncAnimation(fig, update, frames=len(times),
                                     init_func=init, blit=True,
-                                    interval=1000 / fps)
+                                    interval=1000/fps)
         plt.close(fig)
         return HTML(ani.to_jshtml())
+
+
+
+
+
+
+
+
+
 
 
 # =========================================================
