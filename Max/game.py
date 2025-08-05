@@ -318,55 +318,69 @@ class HexnerGame(BaseGame):
     #     return HTML(ani.to_jshtml())
 
     # ---------------------------------------------------------------
-    def visualize_most_likely(self, p1, p2, fps: int = 6):
+    def visualize_most_likely(self, p1_policy, p2_policy, fps: int = 6):
         """
-        Render one HTML animation per hidden type i★, following the
-        *most probable* public-message sequence under the current P1 policy.
-        Returns a list [HTML_type0, HTML_type1, …].
+        Render one HTML animation per hidden type i★ by following the
+        *most-probable public-message sequence* under the current P1 policy.
+
+        Returns
+        -------
+        list[ IPython.display.HTML ]  – one entry for each hidden type.
         """
+        import numpy as np
+        import torch
+        from IPython.display import HTML
+
         dev  = self.device
         outs = []
 
         for i_star in range(self.I):
+            # -------- reset environment ----------------------------------
             self.reset()
             obs = {"x": self.x, "p": self.p, "t": self.t}
 
-            # --- caches for plotting ------------------------------------
-            traj_p1, traj_p2 = [self.x[0, 0:2].cpu().numpy()], [self.x[0, 4:6].cpu().numpy()]
+            # -------- trajectory caches ----------------------------------
+            traj_p1 = [self.x[0, 0:2].cpu().numpy()]
+            traj_p2 = [self.x[0, 4:6].cpu().numpy()]
             p_belief = [self.p[0, 0].item()]
-            times     = [0.0]
-            history = [] 
+            times    = [0.0]
+            history  = []                                  # public messages
+
             for k in range(self.K):
                 with torch.no_grad():
-                    out = p1.forward(obs, k, history)          # (B=1) no history needed
-                    A   = torch.softmax(out["A_logits"][0], dim=-1)   # (I,I)
-                    row = A[i_star]                                   # row i★
-                    j_k = torch.argmax(row).item()                    # max-prob col
+                    out = p1_policy.forward(obs, k)        # NEW – no history arg
+                    A     = torch.softmax(out["A_logits"][0], dim=-1)   # (I,I)
+                    row   = A[i_star]                                      # row i★
+                    j_k   = torch.argmax(row).item()                      # MAP column
 
-                    # continuous actions
-                    μ_tbl = out["μ"][0]                               # (I,d)
-                    u1 = μ_tbl[j_k].unsqueeze(0)                      # (1,d)
-                    u2 = p2.forward(obs, k)                           # (1,d)
+                    μ_tbl = out["μ"][0]                                   # (I,d)
+                    u1    = μ_tbl[j_k].unsqueeze(0)                       # (1,d)
+                    u2    = p2_policy.forward(obs, k)                     # (1,d)
 
                 history.append(j_k)
 
-                # dynamics & belief update ------------------------------
+                # ------ dynamics & belief update --------------------------
                 self.step(u1, u2)
-                self.p = self._bayes_update(self.p, A.unsqueeze(0), torch.tensor([j_k], device=dev))
+                self.p = self._bayes_update(self.p,
+                                            A.unsqueeze(0),              # (1,I,I)
+                                            torch.tensor([j_k],
+                                                        device=dev))    # (1,)
 
-                # log for plot
                 obs = {"x": self.x, "p": self.p, "t": self.t}
+
                 traj_p1.append(self.x[0, 0:2].cpu().detach().numpy())
                 traj_p2.append(self.x[0, 4:6].cpu().detach().numpy())
                 p_belief.append(self.p[0, 0].item())
-                times.append((k+1) * self.dt)
+                times.append((k + 1) * self.dt)
 
-            # --- make animation (reuse most of your existing code) ------
-            html = self._make_hexner_animation(np.array(traj_p1),
-                                        np.array(traj_p2),
-                                        np.array(times),
-                                        np.array(p_belief),
-                                        i_star, fps)
+            # -------- build HTML animation (uses existing helper) ----------
+            html = self._make_hexner_animation(
+                np.array(traj_p1),
+                np.array(traj_p2),
+                np.array(times),
+                np.array(p_belief),
+                i_star, fps
+            )
             outs.append(html)
 
         return outs

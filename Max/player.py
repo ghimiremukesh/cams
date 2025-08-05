@@ -11,67 +11,102 @@ from typing import List
 
 # -------------------------------------------------------------
 class _CAMSNet(nn.Module):
-    """One step-specific CAMS policy π₁ᵏ."""
-    def __init__(self, game, hidden: int):
+    """
+    One step-specific CAMS policy π₁ᵏ.
+    If `last_layer=True` the subnet outputs *only* the I·d prototype
+    actions; the logits are replaced by a fixed identity matrix.
+    """
+    def __init__(self, game, hidden: int, *, last_layer: bool = False):
         super().__init__()
-        self.game = game
-        self.FEAT_DIM = game.FEAT_DIM
-        self.I = game.I
-        self.ACTION_DIM  = game.ACTION_DIM
-        self.net = nn.Sequential(
-            nn.Linear(self.FEAT_DIM, hidden), nn.ReLU(),
-            nn.Linear(hidden, hidden),   nn.ReLU()
-        )
-        self.logit_head = nn.Linear(hidden, self.I * self.I)   # (I×I) logits
-        self.mu_head    = nn.Linear(hidden, self.I * self.ACTION_DIM)   # I prototypes
+        self.game        = game
+        self.I           = game.I
+        self.d           = game.ACTION_DIM
+        self.last_layer  = last_layer             # NEW FLAG
 
+        self.net = nn.Sequential(
+            nn.Linear(game.FEAT_DIM, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden),        nn.ReLU()
+        )
+
+        if not last_layer:                                  # I×I logits
+            self.logit_head = nn.Linear(hidden, self.I * self.I)
+
+        # always keep the full μ-table (I prototypes)
+        self.mu_head = nn.Linear(hidden, self.I * self.d)
+
+        # pre-build identity-logit tensor on device for speed
+        id_logits = torch.full((self.I, self.I), -50.0)
+        id_logits[torch.arange(self.I), torch.arange(self.I)] = 50.0
+        self.register_buffer("_ID", id_logits)
+
+    # ---------------------------------------------------------
     def forward(self, obs: dict[str, Tensor]) -> dict[str, Tensor]:
         h = self.net(torch.cat([obs["x"],
                                 self.game.belief_coord(obs["p"])], dim=-1))
-        A_logits = self.logit_head(h).view(-1, self.I, self.I)      # (B,I,I)
-        μ        = self.game.BOX_ACC * torch.tanh(
-                       self.mu_head(h).view(-1, self.I, self.ACTION_DIM))    # (B,I,ACTION_DIM)
+
+        if self.last_layer:
+            A_logits = self._ID.expand(h.size(0), -1, -1)      # (B,I,I)
+        else:
+            A_logits = self.logit_head(h).view(-1, self.I, self.I)
+
+        μ = self.game.BOX_ACC * torch.tanh(
+                self.mu_head(h).view(-1, self.I, self.d))
+
         return {"A_logits": A_logits, "μ": μ}
 
 # -------------------------------------------------------------
 class CAMS_INFORMED(nn.Module):
-    """
-    Wrapper holding K independent sub-nets π₁ᵏ.
-    API:
-        u , misc = policy.action_only(obs, i_star, k)
-    """
+    """Wrapper holding K independent sub-nets π₁ᵏ."""
     def __init__(self, game, spec):
         super().__init__()
-        self.ACTION_DIM  = game.ACTION_DIM
-        hidden = spec["hidden"]
-        self.TEMPERATURE  = spec["temperature"]                     # row-softmax temperature for P1
-        self.subnets = nn.ModuleList([_CAMSNet(game, hidden) for _ in range(game.K)])
+        
+        self.I, self.d = game.I, game.ACTION_DIM
+        h = spec["hidden"]
+        self.ent_thr   = spec["ent_thr_belief"]
 
-    def forward(self, obs: dict[str, Tensor], k: int):
-        return self.subnets[k](obs)
+        # --- new root parameters ------------------------------------
+        init = spec.get("init_scale", 1e-2)
+        self.root_logits = nn.Parameter(init * torch.randn(self.I, self.I))
+        self.root_mu     = nn.Parameter(init * torch.randn(self.I, self.d))
+
+        # --- k = 1 … K-1 still neural nets ---------------------------
+        self.subnets = nn.ModuleList([
+            _CAMSNet(game, h, last_layer=(k == game.K - 1))   # flag only on last
+            for k in range(1, game.K)                         # exclude k=0 root
+        ])
+
+    # unchanged – keeps existing training / viz calls -----------
+    def forward(self, obs, k):
+        if k == 0:                                             # root step
+            B = obs["x"].shape[0]
+            A = self.root_logits.expand(B, -1, -1).contiguous()
+            μ = self.root_mu.expand(B, -1, -1).contiguous()
+            return {"A_logits": A, "μ": μ}
+        else:                                                  # k ≥ 1
+            return self.subnets[k-1](obs)
 
     @torch.no_grad()
-    def action_only(self, obs: dict[str, Tensor], i_star: Tensor, k: int):
-        """
-        Select row i_star and argmax column for step k.
-        """
-        out        = self.forward(obs, k)
-        A_logits   = out["A_logits"]                    # (B,I,I)
-        μ_proto    = out["μ"]                           # (B,I,ACTION_DIM)
+    def action_only(self, obs, i_star, k):
+        out  = self.forward(obs, k)
+        Alog = out["A_logits"]                   # (B,I,I)
+        μtbl = out["μ"]                          # (B,I,d)
+        B    = Alog.size(0)
 
-        B_idx      = torch.arange(A_logits.size(0), device=A_logits.device)
-        logits_row = A_logits[B_idx, i_star]
-        j          = torch.argmax(logits_row, dim=-1)   # (B,)
+        # last layer ⇒ deterministic j = i_star
+        if k == len(self.subnets) - 1:
+            j = i_star
+        else:
+            logits_row = Alog[torch.arange(B), i_star]
+            j = torch.argmax(logits_row, -1)
 
-        u          = μ_proto[B_idx, j]                  # (B,ACTION_DIM)
+        u = μtbl[torch.arange(B), j]
 
-        misc = {
-            "A":   torch.softmax(A_logits / self.TEMPERATURE, dim=-1),
-            "row": torch.softmax(logits_row, dim=-1),
+        return u, {
+            "A":   torch.softmax(Alog / self.TEMP, -1),
+            "row": torch.softmax(Alog[torch.arange(B), i_star] / self.TEMP, -1),
             "j":   j,
-            "μ":   μ_proto
+            "μ":   μtbl
         }
-        return u, misc
     
 # -------------------------------------------------------------
 class _BRNet(nn.Module):
@@ -98,10 +133,23 @@ class BR(nn.Module):
     """Wrapper with K independent best-response sub-nets."""
     def __init__(self, game, spec):
         super().__init__()
-        self.subnets = nn.ModuleList([_BRNet(game, spec) for _ in range(game.K)])
+        self.d = game.ACTION_DIM
+        init = spec.get("init_scale", 1e-2)
+
+        # explicit μ for root
+        self.root_mu = nn.Parameter(init * torch.randn(game.ACTION_DIM))
+
+        # k = 1 … K-1 small nets
+        self.subnets = nn.ModuleList([_BRNet(game, spec) 
+                                      for _ in range(game.K - 1)])
+
     @torch.enable_grad()
     def forward(self, obs, k: int):
-        return self.subnets[k](obs)                  # (B,ACTION_DIM)
+        if k == 0:
+            B = obs["x"].shape[0]
+            return self.root_mu.expand(B, -1).contiguous()
+        return self.subnets[k-1](obs)
+    
     @torch.no_grad()
     def action_only(self, obs, k: int):
         u = self.forward(obs, k)

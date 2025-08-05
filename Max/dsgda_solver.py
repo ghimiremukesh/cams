@@ -239,40 +239,58 @@ class DSGDASolver:
             running = torch.zeros(S, device=dev)
 
             for k in range(K):
-                # ------- base-I history index  idx(seq, k) ------------------
-                if k == 0:
-                    idx = torch.zeros(S, dtype=torch.long, device=dev)
-                else:
-                    coef = I ** torch.arange(k-1, -1, -1, device=dev)
-                    idx  = (seq[:, :k] * coef).sum(-1)             # (S,)
-
+                # ------------------------------------------------------------------
+                # 1) observation and P1 forward (one subnet per layer)
+                # ------------------------------------------------------------------
                 obs = {"t": env.t, "x": env.x, "p": env.p}
-                out = self.p1.forward_batch(obs, k, idx, env.p, self.prune)    # belief passed in
-                A_logits, μ_proto = out["A_logits"], out["μ"]
+                out = self.p1.forward(obs, k)                          # NEW
+                A_logits, μ_proto = out["A_logits"], out["μ"]          # (S,I,I), (S,I,d)
 
-                rows = torch.softmax(A_logits[:, i_star], dim=-1)  # (S,I)
-                j_k  = seq[:, k]                                   # chosen columns
+                # ------------------------------------------------------------------
+                # 2) optional deep-pure collapse (only when pruning step is active)
+                # ------------------------------------------------------------------
+                if self.prune and k < K - 1:                          # never for last layer
+                    ent = -(env.p * (env.p + 1e-12).log()).sum(-1)     # (S,)
+                    deep_mask = ent < self.p1.ent_thr                  # (S,) bool
+                    if deep_mask.any():
+                        id_logits = self.p1.subnets[k]._ID             # (I,I) buffer
+                        A_logits[deep_mask] = id_logits                # detach – no grad
+                        μ_single = μ_proto[deep_mask, 0].unsqueeze(1)  # (Sd,1,d)
+                        μ_proto[deep_mask] = μ_single.expand(-1, self.I, -1)
+
+                # ------------------------------------------------------------------
+                # 3) row probabilities & path probability update
+                # ------------------------------------------------------------------
+                rows = torch.softmax(A_logits[:, i_star], dim=-1)      # (S,I)
+                j_k  = seq[:, k]                                       # (S,)
                 pi   = pi * rows.gather(1, j_k.unsqueeze(1)).squeeze(1)
 
-                # ---------- cache row_p and belief once per node ------------
+                # ------------------------------------------------------------------
+                # 4) cache row / belief for pruning statistics (once per node)
+                # ------------------------------------------------------------------
                 if apply_prune:
-                    uniq_idx, inv = torch.unique(idx, return_inverse=True)
+                    # node key = base-I integer of history up to layer k
+                    coef = self.I ** torch.arange(k, -1, -1, device=dev)
+                    node_key = (seq[:, :k+1] * coef).sum(-1)           # (S,)
+                    uniq, inv = torch.unique(node_key, return_inverse=True)
                     self.row_curr[k].update({
-                        u.item(): rows[inv == i][0].detach().cpu()
-                        for i, u in enumerate(uniq_idx)
+                        int(u.item()): rows[inv == i][0].detach().cpu()
+                        for i, u in enumerate(uniq)
                     })
                     self.belief_curr[k].update({
-                        u.item(): env.p[inv == i][0].detach().cpu()
-                        for i, u in enumerate(uniq_idx)
+                        int(u.item()): env.p[inv == i][0].detach().cpu()
+                        for i, u in enumerate(uniq)
                     })
 
-                # ---------- actions & dynamics ------------------------------
-                u1 = μ_proto[torch.arange(S, device=dev), j_k]      # (S,d)
-                u2 = self.p2.forward(obs, k)                        # (S,d)
+                # ------------------------------------------------------------------
+                # 5) dynamics and running cost
+                # ------------------------------------------------------------------
+                u1 = μ_proto[torch.arange(S, device=dev), j_k]         # (S,d)
+                u2 = self.p2.forward(obs, k)                           # (S,d)
                 env.step(u1, u2)
                 env.p = env._bayes_update(env.p,
                                         torch.softmax(A_logits, -1), j_k)
-                running += env._running_loss(u1, u2)          # (S,)
+                running += env._running_loss(u1, u2)                   # (S,)
 
             # ---------- terminal cost & accumulation ------------------------
             L_paths = running + env._terminal_loss()                          # (S,)
@@ -298,7 +316,8 @@ class DSGDASolver:
         if apply_prune:
             self.paths = self._build_paths_next()
 
-        self.n_p1_active = self.I * (self.I + self.d) * ((self.I**(self.K-1)) - 1) + self.I * self.d * (self.I**(self.K-1))  # full grid
+        S_paths = self.paths.size(0) 
+        # self.n_p1_active = self.I * (self.I + self.d) * ((self.I**(self.K-1)) - 1) + self.I * self.d * (self.I**(self.K-1))  # full grid
 
         # zero grads ----------------------------------------------------
         for p in itertools.chain(self.p1_vars, self.p2_vars):
@@ -337,7 +356,7 @@ class DSGDASolver:
             "L"         : loss.item(),
             "g_p1"      : g_p1,
             "g_p2"      : g_p2,
-            "n_p1_active" : self.n_p1_active,
+            "n_seq"     : S_paths,
             "t_prune"    : (t1 - t0)*1e3,         
             "t_loss"     : (t2 - t1)*1e3,
             "t_backward" : (t3 - t2)*1e3,
