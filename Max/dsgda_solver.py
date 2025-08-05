@@ -58,14 +58,20 @@ class DSGDASolver:
     (model + optimiser state) that you can trigger from your training
     loop whenever you visualise.
     """
-    def __init__(self, game, p1, p2, spec, *, log_dir: str = "runs", prune: bool = True):
+    def __init__(self, game, p1, p2, spec, *, log_dir: str = "runs", 
+                 prune: bool = True, 
+                 eps_prob=1e-3, 
+                 delta_row=1e-1, 
+                 prune_every=10,      # run pruning once every N steps
+                 prune_warmup=0,      # skip the first W iterations
+                 ):
         """Create solver and open JSONL log file."""
         self.lr_p1, self.lr_p2 = spec["lr_p1"], spec["lr_p2"]
         self.C1, self.C2       = math.sqrt(spec["C2_p1"]), math.sqrt(spec["C2_p2"])
         self.momentum          = spec["momentum"]
 
         self.game, self.p1, self.p2 = game, p1.to(game.device), p2.to(game.device)
-        self.device, self.I, self.K = game.device, game.I, game.K
+        self.device, self.I, self.K, self.d = game.device, game.I, game.K, game.ACTION_DIM
 
         self.p1_vars = [p for p in self.p1.parameters() if p.requires_grad]
         self.p2_vars = [p for p in self.p2.parameters() if p.requires_grad]
@@ -82,164 +88,218 @@ class DSGDASolver:
         self.ckpt_dir  = os.path.join(log_dir, f"ckpt_{self.run_stamp}")
         os.makedirs(self.ckpt_dir, exist_ok=True)
 
-        # toggle tree-pruning
-        self.prune = prune
-        # toggle tree‑pruning
-        self.prune = prune
+        # pruning parameters
+        self.prune      = prune
+        self.eps_prob   = eps_prob
+        self.delta_row  = delta_row
+        self.prune_every   = prune_every
+        self.prune_warmup  = prune_warmup
 
-    # ------------- helper for pruned Cartesian product ----------------
-    def _enumerate_paths(self, i_star: int) -> Tensor:
-        """Return (S,K) LongTensor of allowed message sequences.
-        If self.prune=False the full I^K grid is returned."""
-        if not self.prune:
-            full = torch.cartesian_prod(*[torch.arange(self.I, device=self.device)
-                                          for _ in range(self.K)])  # (I^K, K)
-            return full + 0 * i_star   # broadcast, keep grad free
+        # ---------- full grid -----------------------------------------
+        grid = torch.cartesian_prod(
+            *[torch.arange(self.I) for _ in range(self.K)]
+        )                                                    # (I^K, K) CPU
+        self.paths      = grid.to(self.device).long()        # start with full
+        self.prob_prev  = torch.ones(grid.size(0),
+                                     device=self.device)     # π_old
+        # row cache: list[layer] -> dict{idx(int): row_prob (I,)}
+        self.row_prev   = [dict() for _ in range(self.K)]
 
-        # pruning mode --------------------------------------------------
-        active = [k for k in range(self.K) if not self.p1.step_is_pure(k)]
-        if not active:
-            return torch.full((1, self.K), i_star, dtype=torch.long, device=self.device)
-        ranges = [torch.arange(self.I, device=self.device) for _ in active]
-        grid = ranges[0].unsqueeze(1) if len(ranges) == 1 else torch.cartesian_prod(*ranges)
-        paths = torch.full((grid.size(0), self.K), i_star, dtype=torch.long, device=self.device)
-        paths[:, active] = grid
-        return paths
+        self.belief_curr = [dict() for _ in range(self.K)]
+        self.row_curr    = [dict() for _ in range(self.K)]
 
-    # ---------------------------------------------------------------
-    def _reachable_masks(self):
+    # -----------------------------------------------------------------
+    def _expand_subgrid(self, prefix_idx: int, depth: int):
+        """Return a (I**depth , K) tensor of sequences that share
+           the given prefix index (encoded base-I) up to layer `layer`."""
+        I, K = self.I, self.K
+        # decode prefix to list of digits (length = layer)
+        digits = []
+        tmp = prefix_idx
+        while tmp:
+            digits.append(tmp % I)
+            tmp //= I
+        digits = digits[::-1]
+        layer = len(digits)
+        # cartesian for suffix
+        suffix = torch.cartesian_prod(
+            *[torch.arange(I, device=self.device) for _ in range(depth)]
+        )
+        S = suffix.size(0)
+        seq = torch.empty((S, K), dtype=torch.long, device=self.device)
+        if layer:
+            seq[:, :layer] = torch.tensor(digits,
+                                          device=self.device).expand(S, -1)
+        seq[:, layer:] = suffix
+        return seq
+
+    # -----------------------------------------------------------------
+    def _build_paths_next(self):
         """
-        Compute, for every layer k, a bool mask of length I**k indicating
-        which nodes are reachable under the current collapse mask *and*
-        pruning flag.  Works on CPU or CUDA without triggering advanced-
-        indexing assertions.
-        """
-        device = self.device
-        reachable = [torch.zeros_like(m, device=device) for m in self.p1._pure]
+        Build the pruned path tensor for the next iteration.
 
-        for i_star in range(self.I):
-            seq = self._enumerate_paths(i_star)           # (S, K) LongTensor on device
-            S   = seq.size(0)
-
-            # layer 0 (root) always reachable
-            reachable[0][0] = True
-
-            # running base-I history index
-            idx = torch.zeros(S, dtype=torch.long, device=device)
-
-            for k in range(1, self.K):                    # layers 1 … K-1
-                idx = idx * self.I + seq[:, k-1]          # update in place
-                # use unique() + index_fill_ to avoid duplicate-index bugs
-                idx_u = idx.unique()
-                reachable[k].index_fill_(0, idx_u, True)
-
-        return reachable
-
-    # ---------------------------------------------------------------
-    def _count_active_p1(self):
-        """
-        Count *reachable* parameters of Player-1, distinguishing
-            • non-pure nodes,
-            • first-pure nodes,
-            • deeper pure nodes.
-        """
-        I, d, K = self.I, self.game.ACTION_DIM, self.K
-        block_nonpure = I * (I + d)
-        block_first   = I * d
-        block_deep    = d
-
-        # ---------- reachable indices on CPU to avoid CUDA asserts ---
-        reachable = [set() for _ in range(K)]
-        reachable[0].add(0)
-        for i_star in range(I):
-            seq = self._enumerate_paths(i_star).cpu()      # (S,K)
-            idx = 0
-            for k in range(1, K):
-                idx = idx * I + seq[:, k-1]
-                reachable[k].update(idx.tolist())
-
-        # ---------- parameter tally -----------------------------------
-        active = 0
-        for k in range(K):
-            mask_pure = self.p1._pure[k].cpu()             # BoolTensor
-            for idx in reachable[k]:
-                if not mask_pure[idx]:                     # non-pure
-                    active += block_nonpure
-                else:
-                    if k == 0:                             # root can’t be here
-                        continue
-                    parent_idx = idx // I
-                    parent_pure = self.p1._pure[k-1][parent_idx].item()
-                    active += block_deep if parent_pure else block_first
-        return active
-
-    # ------------------------------------------------------------------
-    def exact_loss(self) -> torch.Tensor:
-        """
-        Compute the zero-sum objective exactly, summing over all message
-        sequences that are still feasible under the current purity masks.
-        Behaviour is controlled by `self.prune`:
-
-            prune = False   → enumerate the full I^K Cartesian grid.
-            prune = True    → call self._enumerate_paths(i★) which
-                            removes branches below pure nodes.
-
+        Side-effects
+        ------------
+        • self.n_p1_active  ←  exact # of P1 parameters still in graph
         Returns
         -------
-        torch.Tensor   scalar loss (P1 maximises, P2 minimises)
+        Tensor  (S_next, K)  pruned path set on solver.device
         """
-        total   = torch.tensor(0.0, device=self.device)
-        GameCls = self.game.__class__
+        I, d, K = self.I, self.game.ACTION_DIM, self.K
+        eps, delta = self.eps_prob, self.delta_row
+        device = self.device
 
-        for i_star in range(self.I):                       # loop over types
-            seq = self._enumerate_paths(i_star)            # (S, K) LongTensor
-            S   = seq.size(0)
-            prior_i = self.game.P0[0, i_star]
+        # --------- 1. keep paths whose previous prob > eps ----------------
+        keep_prob_mask = self.prob_prev > eps
+        paths_keep = self.paths[keep_prob_mask]            # (S_keep,K)
 
-            # ----- batched environment ------------------------------------
-            env = GameCls(self.game.spec, batch_size=S)
+        # --------- 2. restore paths under rows that jumped by > delta -----
+        restore = []
+        for k in range(K - 1):                              # no leaves
+            for idx, row_old in self.row_prev[k].items():
+                row_new = self.row_curr[k].get(idx)
+                if row_new is None:
+                    continue
+                if torch.sum(torch.abs(row_new - row_old)) > delta:
+                    depth = K - k - 1
+                    restore.append(self._expand_subgrid(idx, depth))
+        if restore:
+            paths_restore = torch.unique(torch.cat(restore, 0), dim=0)
+            paths_next = torch.unique(torch.cat([paths_keep,
+                                                paths_restore], 0), dim=0)
+        else:
+            paths_next = paths_keep
+
+        # -----------------------------------------------
+        # 3.  parameter count for P1   (belief-entropy rule)
+        # -----------------------------------------------
+        params = 0
+        ent_thr = self.p1.ent_thr
+
+        # build map layer→{idx→belief} from belief_curr cache
+        belief_layer = self.belief_curr      # list[K] of dicts{idx: Tensor(I,)}
+
+        # gather nodes reachable via paths_next
+        nodes = [set() for _ in range(K)]
+        for seq in paths_next.cpu():
+            idx = 0
+            for k in range(K):
+                if k > 0:
+                    idx = idx * I + seq[k-1].item()
+                nodes[k].add(idx)
+
+        for k in range(K):
+            for idx in nodes[k]:
+                if k == K - 1:
+                    params += I * d                          # last layer
+                    continue
+                belief = belief_layer[k].get(idx)
+                if belief is None:
+                    # safety: treat as non-pure
+                    params += I * (I + d)
+                    continue
+                ent = -(belief * (belief + 1e-12).log()).sum().item()
+                if ent < ent_thr:                            # deeper-pure
+                    params += d
+                else:                                        # non-pure OR first-pure
+                    params += I * (I + d)
+
+        self.n_p1_active = params
+        return paths_next.to(device)
+
+    # -----------------------------------------------------------------
+    def exact_loss(self, apply_prune) -> torch.Tensor:
+        """
+        Exact objective over the currently kept path set `self.paths`.
+
+        *  self.paths   : (S,K) LongTensor of message sequences
+        *  self.row_curr     caches outgoing row distributions per node
+        *  self.belief_curr  caches belief vectors per node
+        *  self.prob_curr    stores  π(seq)  = Σ_i  p(i) π(seq|i)   (for pruning)
+        """
+        paths = self.paths                       # (S,K)
+        S, K  = paths.size()
+        I, d  = self.I, self.game.ACTION_DIM
+        dev   = self.device
+
+        # fresh caches for this iteration
+        self.row_curr     = [dict() for _ in range(K)]
+        self.belief_curr  = [dict() for _ in range(K)]
+        self.prob_curr    = torch.zeros(S, device=dev)
+
+        total = torch.tensor(0.0, device=dev)
+        
+        for i_star in range(I):                                    # loop hidden type
+            seq = paths                                            # (S,K)
+            env = self.game.__class__(self.game.spec, batch_size=S)
             env.i_star.fill_(i_star)
-            env.p.copy_(self.game.P0.repeat(S, 1))         # public belief
+            env.p.copy_(self.game.P0.repeat(S, 1))
 
-            path_prob   = torch.ones(S, device=self.device)
-            running_acc = torch.zeros(S, device=self.device)
+            pi = torch.ones(S, device=dev)                        # path prob p(seq|i★)
+            running = torch.zeros(S, device=dev)
 
-            for k in range(self.K):
-                j_k = seq[:, k]                            # (S,)
+            for k in range(K):
+                # ------- base-I history index  idx(seq, k) ------------------
+                if k == 0:
+                    idx = torch.zeros(S, dtype=torch.long, device=dev)
+                else:
+                    coef = I ** torch.arange(k-1, -1, -1, device=dev)
+                    idx  = (seq[:, :k] * coef).sum(-1)             # (S,)
 
-                # ---------- observation dict ------------------------------
                 obs = {"t": env.t, "x": env.x, "p": env.p}
+                out = self.p1.forward_batch(obs, k, idx, env.p, self.prune)    # belief passed in
+                A_logits, μ_proto = out["A_logits"], out["μ"]
 
-                # ---------- Player-1 --------------------------------------
-                out       = self.p1.forward(obs, k)        # dict with "A_logits", "μ"
-                A_logits  = out["A_logits"]                # (S, I, I)
-                μ_proto   = out["μ"]                       # (S, I, d)
+                rows = torch.softmax(A_logits[:, i_star], dim=-1)  # (S,I)
+                j_k  = seq[:, k]                                   # chosen columns
+                pi   = pi * rows.gather(1, j_k.unsqueeze(1)).squeeze(1)
 
-                rows      = torch.softmax(A_logits[:, i_star], dim=-1)  # (S, I)
-                path_prob = path_prob * rows.gather(1, j_k.unsqueeze(1)).squeeze(1)
+                # ---------- cache row_p and belief once per node ------------
+                if apply_prune:
+                    uniq_idx, inv = torch.unique(idx, return_inverse=True)
+                    self.row_curr[k].update({
+                        u.item(): rows[inv == i][0].detach().cpu()
+                        for i, u in enumerate(uniq_idx)
+                    })
+                    self.belief_curr[k].update({
+                        u.item(): env.p[inv == i][0].detach().cpu()
+                        for i, u in enumerate(uniq_idx)
+                    })
 
-                u1 = μ_proto[torch.arange(S, device=self.device), j_k]  # (S, d)
-
-                # ---------- Player-2 --------------------------------------
-                u2 = self.p2.forward(obs, k)                              # (S, d)
-
-                # ---------- dynamics & running loss -----------------------
+                # ---------- actions & dynamics ------------------------------
+                u1 = μ_proto[torch.arange(S, device=dev), j_k]      # (S,d)
+                u2 = self.p2.forward(obs, k)                        # (S,d)
                 env.step(u1, u2)
-                running_acc += env._running_loss(u1, u2)                  # new unified API
+                env.p = env._bayes_update(env.p,
+                                        torch.softmax(A_logits, -1), j_k)
+                running += env._running_loss(u1, u2)          # (S,)
 
-                # ---------- Bayesian update -------------------------------
-                A_soft = torch.softmax(A_logits, dim=-1)
-                env.p  = env._bayes_update(env.p, A_soft, j_k)
+            # ---------- terminal cost & accumulation ------------------------
+            L_paths = running + env._terminal_loss()                          # (S,)
+            prior   = self.game.P0[0, i_star]
+            total  += prior * (pi * L_paths).sum()
 
-            # ---------- terminal cost & accumulate ------------------------
-            L_paths = running_acc + env._terminal_loss()                   # (S,)
-            total  += prior_i * (path_prob * L_paths).sum()
+            # accumulate unconditional path probability for pruning
+            self.prob_curr += prior * pi
 
         return total
 
     # ------------------------------------------------------------------
     def step(self) -> Dict[str, float]:
         t0 = time.perf_counter()
+        
+        # ------- build new path set before computing loss --------------
+        apply_prune = (
+            self.prune and
+            (len(self.meta) >= self.prune_warmup) and
+            ((len(self.meta) - self.prune_warmup) % self.prune_every == 0)
+        )
+
+        if apply_prune:
+            self.paths = self._build_paths_next()
+
+        self.n_p1_active = self.I * (self.I + self.d) * ((self.I**(self.K-1)) - 1) + self.I * self.d * (self.I**(self.K-1))  # full grid
+
         # zero grads ----------------------------------------------------
         for p in itertools.chain(self.p1_vars, self.p2_vars):
             if p.grad is not None:
@@ -247,7 +307,11 @@ class DSGDASolver:
 
         # compute loss --------------------------------------------------
         t1 = time.perf_counter()
-        loss = self.exact_loss()
+        loss = self.exact_loss(apply_prune)
+        # ---------- rotate caches --------------------------------------
+        self.prob_prev = self.prob_curr.detach()
+        self.row_prev  = self.row_curr
+
         t2 = time.perf_counter()
 
         # backward ------------------------------------------------------
@@ -264,32 +328,22 @@ class DSGDASolver:
         self.buf_p2.apply_step(ascent=True,  lr=self.lr_p2)
         t5 = time.perf_counter()
 
-        # auto collapse -------------------------------------------------
-        n_collapse = 0
-        if self.prune:
-            n_collapse = self.p1.auto_collapse(ent_thr=1e-1)
-        t6 = time.perf_counter()
-
         # grads norms ---------------------------------------------------
         g_p1 = torch.stack([m.norm() for m in self.buf_p1.m]).mean().item()
         g_p2 = torch.stack([m.norm() for m in self.buf_p2.m]).mean().item()
 
-        # count active P1 parameters
-        active = self._count_active_p1()
-        
         rec = {
             "iter"      : len(self.meta),
             "L"         : loss.item(),
             "g_p1"      : g_p1,
             "g_p2"      : g_p2,
-            "collapsed" : int(n_collapse),
-            "n_p1_active" : active,         
+            "n_p1_active" : self.n_p1_active,
+            "t_prune"    : (t1 - t0)*1e3,         
             "t_loss"     : (t2 - t1)*1e3,
             "t_backward" : (t3 - t2)*1e3,
             "t_momentum" : (t4 - t3)*1e3,
             "t_step"     : (t5 - t4)*1e3,
-            "t_collapse" : (t6 - t5)*1e3,
-            "wall_ms"    : (t6 - t0)*1e3,
+            "wall_ms"    : (t5 - t0)*1e3,
         }
         # -- keep in RAM & file ---------------------------------------
         self.meta.append(rec)

@@ -221,8 +221,10 @@ class HexnerGame(BaseGame):
         self.reset()
         obs = {"x": self.x, "p": self.p, "t": self.t}
         i_star = self.i_star
-
-        p_traj, t_traj, p1_xy, p2_xy = [], [], [], []
+        p_traj   = [self.p[0, 0].item()]            # belief at t = 0
+        t_traj   = [0.0]
+        p1_xy    = [self.x[0, 0:2].cpu().numpy()]   # P1 pos at t = 0
+        p2_xy    = [self.x[0, 4:6].cpu().numpy()]   # P2 pos at t = 0
 
         # print("\n========== DEBUG ROLL-OUT ==========")
         for step in range(self.K):
@@ -232,23 +234,23 @@ class HexnerGame(BaseGame):
                 u2, _     = p2_policy.action_only(obs, step)
 
             # ---------- diagnostics ---------------------------------------------
-            # print(f"\n[t = {step*self.dt: .2f} s]")
+            print(f"\n[t = {step*self.dt: .2f} s]")
             # full probability matrix A  (I×I)
-            # A_mat = misc1["A"][0].cpu().detach().numpy()           # (I,I)
-            # print("P1 probability matrix  A :")
-            # for r in range(self.I):
-            #     print(f"  row {r}:", np.round(A_mat[r], 3))
+            A_mat = misc1["A"][0].cpu().detach().numpy()           # (I,I)
+            print("P1 probability matrix  A :")
+            for r in range(self.I):
+                print(f"  row {r}:", np.round(A_mat[r], 3))
 
             # prototype action table μ  (shared across rows)
-            # mu_tbl = misc1["μ"][0].cpu().detach().numpy()              # (I,2)
-            # print("Global prototype actions μ :")
-            # for idx, vec in enumerate(mu_tbl):
-            #     print(f"  idx {idx}: {np.round(vec, 3)}")
+            mu_tbl = misc1["μ"][0].cpu().detach().numpy()              # (I,2)
+            print("Global prototype actions μ :")
+            for idx, vec in enumerate(mu_tbl):
+                print(f"  idx {idx}: {np.round(vec, 3)}")
 
-            # j = misc1["j"].item()
-            # print("Chosen prototype idx :", j)
-            # print("u₁ action       :", u1.squeeze(0).cpu().detach().numpy())
-            # print("u₂ action       :", u2.squeeze(0).cpu().detach().numpy())
+            j = misc1["j"].item()
+            print("Chosen prototype idx :", j)
+            print("u₁ action       :", u1.squeeze(0).cpu().detach().numpy())
+            print("u₂ action       :", u2.squeeze(0).cpu().detach().numpy())
 
             # advance dynamics & belief ---------------------------------
             self.step(u1, u2)
@@ -266,10 +268,10 @@ class HexnerGame(BaseGame):
         # ------------------------------------------------------------------------
         #  Build the Matplotlib animation
         # ------------------------------------------------------------------------
-        p_belief = np.array([0.5] + p_traj)               # prepend t=0 value
-        times    = np.array([0.0] + t_traj)
-        p1_xy    = np.vstack([self.x[0, 0:2].cpu().detach().numpy()] + p1_xy)
-        p2_xy    = np.vstack([self.x[0, 4:6].cpu().detach().numpy()] + p2_xy)
+        p_belief = np.array(p_traj)               # prepend t=0 value
+        times    = np.array(t_traj)
+        p1_xy    = np.vstack(p1_xy)
+        p2_xy    = np.vstack(p2_xy)
 
         fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(5, 8),
                                     gridspec_kw={"height_ratios": [3, 1]})

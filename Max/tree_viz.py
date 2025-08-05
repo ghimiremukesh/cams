@@ -50,65 +50,75 @@ def _entropy(p: Tensor, eps: float = 1e-12):
     p = p.clamp(min=eps)
     return -(p * p.log()).sum(-1)
 
-# -----------------------------------------------------------
+# ---------- parameters you may tune ---------------------------------
+onehot_thr   = 1e-3       # tolerance for identifying one-hot rows
+ent_thr_bel  = 1e-3       # belief entropy threshold for deep-pure
+mu_thr       = 1e-2       # μ-row diversity threshold
+# --------------------------------------------------------------------
 
-def build_tree(p1, prior: Tensor, I: int, K: int, *, ent_thr: float = 0.2):
-    """Return a directed NetworkX graph with node / edge attrs."""
+def build_tree(p1, prior: Tensor, I: int, K: int) -> nx.DiGraph:
     dev = prior.device
-    root_idx = 0
-    G = nx.DiGraph()
+    G   = nx.DiGraph()
 
-    # node attr helper --------------------------------------
-    def _add_node(t: int, idx: int, belief: Tensor):
-        pure   = p1._pure[t][idx].item() if t < K else False
+    def _entropy(p: Tensor, eps: float = 1e-12):
+        return -(p.clamp(min=eps) * (p+eps).log()).sum()
+
+    # ── helper to classify and add a node ───────────────────────────
+    def _add(t: int, idx: int, belief: Tensor) -> str:
         if t == 0:
             ntype = "root"
         elif t == K:
             ntype = "leaf"
-        elif pure:
-            ntype = "pure"
         else:
-            # prototype diversity test
-            _, mu_tbl = p1._slice(t, idx)           # (I, d)
-            # pair-wise max distance
-            max_dist = (mu_tbl.unsqueeze(0) - mu_tbl.unsqueeze(1)) \
-                        .norm(dim=-1).max().item()
-            mu_thr = 1e-2                           # tweak to your units
-            ntype = "reveal" if max_dist > mu_thr else "non"
-        G.add_node((t, idx), belief=belief.cpu(), ntype=ntype)
+            Λσ, μ_tbl = p1._slice(t, idx)
+            A   = torch.softmax(Λσ, dim=-1)                 # (I,I)
 
-    # --------------------------------------------------------
-    # BFS over tree with pruning when node is pure
-    # --------------------------------------------------------
-    _add_node(0, root_idx, prior)
-    queue: List[Tuple[int, int, Tensor]] = [(0, root_idx, prior)]
+            row_max, arg = A.max(dim=-1)                    # each row’s peak & col
+            one_hot = (row_max > 1 - onehot_thr).all() and \
+                    (len(torch.unique(arg)) == I)         # permutation check
+
+            ent = _entropy(belief).item()
+
+            if one_hot:
+                ntype = "deep" if ent < ent_thr_bel else "first"
+            else:
+                max_dist = (μ_tbl.unsqueeze(0) - μ_tbl.unsqueeze(1)) \
+                        .norm(dim=-1).max().item()
+                ntype = "reveal" if max_dist > mu_thr else "non"
+
+        G.add_node((t, idx), belief=belief.cpu(), ntype=ntype)
+        return ntype
+
+    # ── BFS over tree ------------------------------------------------
+    queue = [(0, 0, prior)]
+    _add(0, 0, prior)
 
     while queue:
         t, idx, belief = queue.pop(0)
         if t == K:
             continue
 
-        pure = p1._pure[t][idx].item()
         Λσ, _ = p1._slice(t, idx)
-        A     = torch.softmax(Λσ, dim=-1)                   # (I,I)
+        A     = torch.softmax(Λσ, dim=-1)              # (I,I)
 
-        # effective message distribution  q_j = Σ_i p_i A_ij
-        q = (belief.unsqueeze(0) @ A).squeeze(0)            # (I,)
+        q = (belief.unsqueeze(0) @ A).squeeze(0)
         q = q / q.sum().clamp_min(1e-12)
 
-        cols = [torch.argmax(belief).item()] if pure else list(range(I))
+        # decide branching: one column if node is 'first' or 'deep'
+        ntype = G.nodes[(t, idx)]["ntype"]
+        if ntype in {"first", "deep"}:
+            cols = [torch.argmax(belief).item()]
+        else:
+            cols = list(range(I))
+
         for j in cols:
-            child_idx = idx * I + j     # base-I shift
-            child_belief = belief.clone()
-            # Bayes update --------------------------------------
+            child_idx = idx * I + j
             Aj = A[:, j]
-            numer = Aj * belief
-            child_belief = numer / numer.sum().clamp_min(1e-12)
+            child_belief = (Aj * belief) / (Aj@belief).clamp_min(1e-12)
 
             prob_j = q[j].item()
             G.add_edge((t, idx), (t+1, child_idx), prob=prob_j)
-            _add_node(t+1, child_idx, child_belief)
-
+            _add(t+1, child_idx, child_belief)
             queue.append((t+1, child_idx, child_belief))
 
     return G

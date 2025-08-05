@@ -139,100 +139,84 @@ def info_index(history: List[int], I: int) -> int:
 
 class P1ExplicitStrategy(nn.Module):
     def __init__(self, game, *, init_scale=1e-2,
-                 temperature=1.0, feat_eps=0.05):
+                 temperature=1.0, ent_thr_belief=1e-3):
         super().__init__()
-        self.game = game                    # keep reference
-        self.I, self.d, self.K = game.I, game.ACTION_DIM, game.K
-        self.T, self.dev = temperature, game.device
-        self.feat_eps = feat_eps
+        self.game, self.I = game, game.I
+        self.d, self.K    = game.ACTION_DIM, game.K
+        self.T, self.dev  = temperature, game.device
+        self.ent_thr      = ent_thr_belief            # entropy threshold
 
         block = self.I * (self.I + self.d)
-        self.params, self._pure, self._centroid = nn.ParameterList(), [], []
-
+        self.params = nn.ParameterList()
         for t in range(1, self.K + 1):
-            n_states = self.I ** (t - 1)
-            dim = n_states * block
+            dim = (self.I ** (t - 1)) * block
             self.params.append(
                 nn.Parameter(init_scale * torch.randn(dim, device=self.dev))
             )
-            default_pure = (t == self.K)
-            self._pure.append(
-                torch.full((n_states,), default_pure,
-                           dtype=torch.bool, device=self.dev)
-            )
-            # centroid: (n_states, FEAT_DIM)  – NaN means “unset”
-            self._centroid.append(
-                torch.full((n_states, game.FEAT_DIM),
-                           float('nan'), device=self.dev)
-            )
-    # ------------- low‑level slice ------------------------------------
-    def _slice(self, t: int, idx: int):
-        block = self.I * (self.I + self.d)
-        start = idx * block
-        θ     = self.params[t]                       # flat tensor
-        Λ_flat = θ[start : start + self.I * self.I]
-        Λ      = Λ_flat.view(self.I, self.I)
-        μ_flat = θ[start + self.I * self.I : start + block]
-        μ_tbl  = μ_flat.view(self.I, self.d)
-        return Λ, μ_tbl
 
-    # --------------------------------------------------------------------
-    def _feat(self, obs):
-        """Return (B, FEAT_DIM) feature tensor for distance check."""
-        return torch.cat([obs["x"],
-                          self.game.belief_coord(obs["p"])], dim=-1)
+    # ---------- fast block-slicer -----------------------------------
+    def _slice_blocks(self, k, idx_tensor):
+        """Gather Λ and μ for a batch of history indices."""
+        I, d, dev = self.I, self.d, self.dev
+        block = I * (I + d)
+        θ = self.params[k].view(-1)
+        starts = idx_tensor * block                    # (S,)
 
-    # ---------- main forward --------------------------------------------
-    def forward(self, obs: dict[str, Tensor], k: int,
-                history: list[int] | None = None):
+        offs_Λ = torch.arange(I*I, device=dev)
+        Λ_flat = θ[(starts[:, None] + offs_Λ).reshape(-1)]
+        Λ_out  = Λ_flat.view(-1, I, I)                 # (S,I,I)
 
+        offs_μ = torch.arange(I*I, I*(I+d), device=dev)
+        μ_flat = θ[(starts[:, None] + offs_μ).reshape(-1)]
+        μ_out  = μ_flat.view(-1, I, d)                 # (S,I,d)
+        return Λ_out, μ_out
+
+    # ---------- vectorised forward for solver ------------------------
+    def forward_batch(self, obs, k, idx_tensor, belief, prune: bool = True):
+        """
+        Returns dict with A_logits (S,I,I) and μ (S,I,d).
+        Purity rule:
+            • if k == K-1           → treat as first-pure (I×d table)
+            • elif entropy(belief)<ent_thr  → deeper-pure (one μ vector)
+            • else                 → non-pure (full block)
+        """
+
+        Λ_out, μ_out = self._slice_blocks(k, idx_tensor)
+
+        if prune:
+            I, d, dev = self.I, self.d, self.dev
+            S = idx_tensor.size(0)
+            # -------- determine purity from belief entropy ----------------
+            ent = -(belief * (belief + 1e-12).log()).sum(-1)      # (S,)
+            deeper_mask = (ent < self.ent_thr) & (k < self.K - 1)  # exclude last layer
+
+            # last decision layer: force identity Λ but KEEP I×d μ table
+            last_layer_mask = (k == self.K - 1)
+            pure_any = deeper_mask | last_layer_mask
+            if pure_any.any():
+                id_logits = torch.full((I, I), -50.0, device=dev)
+                id_logits[torch.arange(I), torch.arange(I)] = 50.0
+                Λ_out[pure_any] = id_logits
+
+            # deeper-pure → broadcast a single μ vector
+            if deeper_mask.any():
+                μ_single = μ_out[deeper_mask, 0].unsqueeze(1)     # (S_p,1,d)
+                μ_out[deeper_mask] = μ_single.expand(-1, I, -1)
+
+        return {"A_logits": Λ_out, "μ": μ_out}
+
+    # ---------- single-path wrapper for visualisation ----------------
+    def forward(self, obs, k, history=None):
         if history is None:
             history = []
         idx = 0
         for j in history:
             idx = idx * self.I + j
+        idx_t = torch.tensor([idx], device=self.dev)
+        belief = obs["p"][:1]
+        out = self.forward_batch(obs, k, idx_t, belief)
+        return out
 
-        # -------- determine parent purity ---------------------------------
-        parent_pure = False
-        if k > 0:
-            parent_idx = idx // self.I          # divide by I → drop last digit
-            parent_pure = self._pure[k-1][parent_idx].item()
-
-        # -------- reversible purity check ---------------------------------
-        last_decision_layer = (k == self.K - 1)      # one above leaves
-        if self._pure[k][idx]:
-            # Only test distance if *parent is not pure*
-            if (not last_decision_layer) and (not parent_pure):
-                feat_now = self._feat(obs).mean(0)          # (FEAT_DIM,)
-                cent     = self._centroid[k][idx]
-                if torch.isnan(cent).any():
-                    self._centroid[k][idx].copy_(feat_now)  # first visit
-                elif torch.dist(feat_now, cent) > self.feat_eps:
-                    # UN-COLLAPSE this node
-                    self._pure[k][idx] = False
-
-        # ---------- choose behaviour ------------------------------------
-        if self._pure[k][idx]:
-            Λσ = torch.full((self.I, self.I), -50.0, device=self.dev)
-            diag = torch.arange(self.I, device=self.dev)
-            Λσ[diag, diag] = 50.0
-
-            _, μ_tbl0 = self._slice(k, idx)          # (I, d)
-
-            # distinguish first-pure vs deeper-pure
-            if parent_pure:
-                μ_tbl = μ_tbl0[0].expand(self.I, -1)     # deeper pure → one vector
-            else:
-                μ_tbl = μ_tbl0                           # first pure → I distinct rows
-        else:
-            Λσ, μ_tbl = self._slice(k, idx)
-
-        B = obs["x"].size(0)
-        return {
-            "A_logits": Λσ.expand(B, -1, -1).contiguous(),
-            "μ":        μ_tbl.expand(B, -1, -1).contiguous()
-        }
-    
     # ------------------------------------------------------------------
     def action_only(self,
                     obs   : dict[str, Tensor],
