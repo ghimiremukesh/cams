@@ -59,9 +59,7 @@ class DSGDASolver:
     loop whenever you visualise.
     """
     def __init__(self, game, p1, p2, spec, *, log_dir: str = "runs", 
-                 prune: bool = True, 
-                 eps_prob=1e-3, 
-                 delta_row=1e-1, 
+                 prune: bool = True,
                  prune_every=10,      # run pruning once every N steps
                  prune_warmup=0,      # skip the first W iterations
                  ):
@@ -90,8 +88,9 @@ class DSGDASolver:
 
         # pruning parameters
         self.prune      = prune
-        self.eps_prob   = eps_prob
-        self.delta_row  = delta_row
+        a_min = (1 / self.I) ** self.K          # note: exponent K
+        self.eps_prob  = 1e-3 * a_min
+        self.delta_row = 1e-2 * a_min
         self.prune_every   = prune_every
         self.prune_warmup  = prune_warmup
 

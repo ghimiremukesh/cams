@@ -344,7 +344,6 @@ class HexnerGame(BaseGame):
             traj_p2 = [self.x[0, 4:6].cpu().numpy()]
             p_belief = [self.p[0, 0].item()]
             times    = [0.0]
-            history  = []                                  # public messages
 
             for k in range(self.K):
                 with torch.no_grad():
@@ -356,8 +355,6 @@ class HexnerGame(BaseGame):
                     μ_tbl = out["μ"][0]                                   # (I,d)
                     u1    = μ_tbl[j_k].unsqueeze(0)                       # (1,d)
                     u2    = p2_policy.forward(obs, k)                     # (1,d)
-
-                history.append(j_k)
 
                 # ------ dynamics & belief update --------------------------
                 self.step(u1, u2)
@@ -877,98 +874,45 @@ class FootballGame(BaseGame):
     def summary(self, stats: Dict[str, float]):
         print(f"[Iter {stats['iter']:04d}]  L={stats['loss']:+.3f}  |g₁|={stats['g1']:.3f}  |g₂|={stats['g2']:.3f}")
 
-    # -----------------------------------------------------
-    #  Visualisation helper  (no diff_env dependency)
-    # -----------------------------------------------------
-    def visualize_episode(self,
-                        p1_policy: nn.Module,
-                        p2_policy: nn.Module,
-                        fps: int = 6,
-                        force_type: int | None = None,          
-                        return_animation: bool = False):        
-
+    # ------------------------------------------------------------------
+    def _make_football_animation(self,
+                                 traj_off, traj_def,
+                                 times, p_traj,
+                                 i_star: int, fps: int):
         """
-        Top: trajectories (red offence, blue defence).
-        Bottom: public belief p(t)[ i★ ] where i★ is the offence’s
-                hidden play type.
+        Shared routine: build an HTML <video> showing
+            • top  : N-player trajectories (offence red / defence blue)
+            • bottom: belief p(t)[i★]
+        The two numpy arrays traj_* have shape (T+1, N, 2).
         """
-        import matplotlib.pyplot as plt
-        from matplotlib import animation
+        import matplotlib.pyplot as plt, matplotlib.animation as anim
         from IPython.display import HTML
         import numpy as np
-        import torch
 
-        # ---------- reset & optionally set the type -----------------
-        self.reset(batch_size=1)
-        if force_type is not None:
-            self.i_star.fill_(force_type)           # override random draw
-
-        obs     = {"x": self.x, "p": self.p, "t": self.t}
-        i_star  = int(self.i_star.item())
-        play_nm = self.PLAY_NAMES[i_star]
-
-        # ---- store true initial state ------------------------------
-        pos1, _, pos2, _ = self._split_state(self.x)
-        traj_off = [pos1[0].cpu().numpy()]       # frame 0 = initial
-        traj_def = [pos2[0].cpu().numpy()]
-        p_traj   = [self.P0[0, i_star].item()]   # initial belief
-        t_traj   = [0.0]                         # time 0
-        merge_hist  = [np.zeros(self.N, dtype=bool)]   # ★ frame-0: nobody merged
-        tackle_hist = [False]                          # ★ frame-0: not tackled
-
-        for k in range(self.K):
-            with torch.no_grad():
-                u1, misc1 = p1_policy.action_only(obs, self.i_star, k)
-                u2, _ = p2_policy.action_only(obs, k)
-
-            self.p = self._bayes_update(self.p, misc1["A"], misc1["j"])
-            self.step(u1, u2)
-
-            merge_mask = (self.w_last.sum(2) > 0.1)[0].cpu().numpy()       # (N,) bool
-            tackled    = self._tackle_flag(self.w_last)[0].item()
-            merge_hist.append(merge_mask)
-            tackle_hist.append(tackled > 0.5)
-
-            pos1, _, pos2, _ = self._split_state(self.x)
-            traj_off.append(pos1[0].cpu().detach().numpy())   # (N,2)
-            traj_def.append(pos2[0].cpu().detach().numpy())
-
-            # belief history
-            p_traj.append(self.p[0, i_star].cpu().item())
-            t_traj.append((k + 1) * self.dt)
-
-            obs = {"x": self.x, "p": self.p, "t": self.t}
-
-
-        # ---------- figure & axes ----------------------------------
         fig, (ax_top, ax_bot) = plt.subplots(
-            2, 1, figsize=(6, 9),
+            2, 1, figsize=(6, 8),
             gridspec_kw={"height_ratios": [4, 1]}
         )
-        # ---- top ---------------------------------------------------
+
+        # ── axis limits ------------------------------------------------
         ax_top.set_xlim(-self.BOX_POS - .2, self.BOX_POS + .2)
         ax_top.set_ylim(-self.BOX_POS - .2, self.BOX_POS + .2)
         ax_top.set_aspect("equal")
-        ax_top.set_title(f"Play demo – {play_nm}")
-        ax_top.scatter([],[],c="red",    label="Free attacker")
-        ax_top.scatter([],[],c="orange", label="Merged attacker")
-        ax_top.scatter([],[],c="black",  label="RB tackled")
+        ax_top.set_title(f"Most-likely path – type {i_star}")
 
-        scat_off = ax_top.scatter([], [], s=80, c="red",  label="Offence")
-        scat_def = ax_top.scatter([], [], s=80, c="blue", label="Defence")
-        rb_star  = ax_top.scatter([], [], s=140, marker="*", c="gold",
-                                edgecolors="black", linewidths=0.6,
-                                label="RB (ball)")
-        ax_top.legend(loc="upper right")
+        scat_off = ax_top.scatter([], [], s=70, c="red")
+        scat_def = ax_top.scatter([], [], s=70, c="blue")
+        rb_star  = ax_top.scatter([], [], s=140, marker="*",
+                                  c="gold", edgecolors="black", lw=.6)
 
-        # ---- bottom ------------------------------------------------
+        # ── belief plot ------------------------------------------------
         ax_bot.set_xlim(0, self.T)
         ax_bot.set_ylim(-0.05, 1.05)
-        ax_bot.set_xlabel("time (s)")
+        ax_bot.set_xlabel("time  (s)")
         ax_bot.set_ylabel(f"belief  p[{i_star}]")
-        ax_bot.plot(t_traj, p_traj, color="black")
+        ax_bot.plot(times, p_traj, color="black")
 
-        # ---------- artists init / update ---------------------------
+        # ── blit helpers ----------------------------------------------
         def init():
             empty = np.empty((0, 2))
             scat_off.set_offsets(empty)
@@ -977,33 +921,83 @@ class FootballGame(BaseGame):
             return scat_off, scat_def, rb_star
 
         def update(frame):
-            offs = traj_off[frame]
-            colors = []
-            for idx in range(self.N):
-                if tackle_hist[frame] and idx == self.BALL_IDX:      # RB tackled → black
-                    colors.append("black")
-                elif merge_hist[frame][idx]:                         # merged → orange
-                    colors.append("orange")
-                else:                                                # free attacker
-                    colors.append("red")
-            scat_off.set_offsets(offs)
-            scat_off.set_color(colors)
-
+            scat_off.set_offsets(traj_off[frame])
             scat_def.set_offsets(traj_def[frame])
-            rb_star.set_offsets(offs[self.BALL_IDX])                 # highlight RB
+            rb_star.set_offsets(traj_off[frame, self.BALL_IDX])
             return scat_off, scat_def, rb_star
-        
-        # ---------------------------------------------------------------
-        ani = animation.FuncAnimation(
-            fig, update, frames=len(traj_off),
+
+        ani = anim.FuncAnimation(
+            fig, update, frames=len(times),
             init_func=init, blit=True, interval=1000 / fps
         )
         plt.close(fig)
-
-        if return_animation:
-            return HTML(ani.to_jshtml()), ani       # NEW
-        
         return HTML(ani.to_jshtml())
+
+    # ────────────────────────────────────────────────────────────────────
+    # 2) NEW :  visualize_most_likely   (add below visualize_episode)
+    # ────────────────────────────────────────────────────────────────────
+    def visualize_most_likely(self,
+                              p1_policy: nn.Module,
+                              p2_policy: nn.Module,
+                              fps: int = 6):
+        """
+        One HTML animation per hidden type i★ following the *most-probable*
+        public message sequence under the current Player-1 policy.
+        """
+        import numpy as np, torch
+        outs = []
+        dev  = self.device
+
+        for i_star in range(self.I):
+            # --- reset environment -----------------------------------
+            self.reset(batch_size=1)
+            self.i_star.fill_(i_star)
+            obs = {"x": self.x, "p": self.p, "t": self.t}
+
+            # --- logging containers ---------------------------------
+            pos1, _, pos2, _ = self._split_state(self.x)
+            traj_off = [pos1[0].cpu().numpy()]
+            traj_def = [pos2[0].cpu().numpy()]
+            p_traj   = [self.p[0, 0].item()]
+            times    = [0.0]
+
+            for k in range(self.K):
+                with torch.no_grad():
+                    out = p1_policy.forward(obs, k)
+                    A   = torch.softmax(out["A_logits"][0], dim=-1)  # (I,I)
+                    row = A[i_star]
+                    j_k = torch.argmax(row).item()                   # argmax_j
+
+                    μ_tbl = out["μ"][0]                              # (I,d)
+                    u1 = μ_tbl[j_k].unsqueeze(0)                     # (1,d)
+                    u2 = p2_policy.forward(obs, k)                   # (1,d)
+
+                # dynamics + belief update ---------------------------
+                self.step(u1, u2)
+                self.p = self._bayes_update(
+                    self.p, A.unsqueeze(0), torch.tensor([j_k], device=dev)
+                )
+
+                # cache for plot ------------------------------------
+                obs = {"x": self.x, "p": self.p, "t": self.t}
+                pos1, _, pos2, _ = self._split_state(self.x)
+                traj_off.append(pos1[0].cpu().detach().numpy())
+                traj_def.append(pos2[0].cpu().detach().numpy())
+                p_traj.append(self.p[0, 0].item())
+                times.append((k + 1) * self.dt)
+
+            # --- build animation -----------------------------------
+            html = self._make_football_animation(
+                np.array(traj_off),
+                np.array(traj_def),
+                np.array(times),
+                np.array(p_traj),
+                i_star, fps
+            )
+            outs.append(html)
+
+        return outs
+
     
     # ---------------------------------------------------------------
     def save_type_animations(self,
