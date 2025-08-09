@@ -30,6 +30,7 @@ import math, itertools, json, time, os, datetime
 from typing import Dict, List
 import torch
 from torch import Tensor
+from pathlib import Path
 
 # ---------------------------------------------------------------------
 class MomentumBuffer:
@@ -58,7 +59,7 @@ class DSGDASolver:
     (model + optimiser state) that you can trigger from your training
     loop whenever you visualise.
     """
-    def __init__(self, game, p1, p2, spec, *, log_dir: str = "runs", 
+    def __init__(self, game, p1, p2, spec, *, log_root: str = "Max/runs", 
                  prune: bool = True,
                  prune_every=10,      # run pruning once every N steps
                  prune_warmup=0,      # skip the first W iterations
@@ -76,15 +77,26 @@ class DSGDASolver:
         self.buf_p1  = MomentumBuffer(self.p1_vars, self.momentum, self.device)
         self.buf_p2  = MomentumBuffer(self.p2_vars, self.momentum, self.device)
 
-        # logging -------------------------------------------------------
-        ts  = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        os.makedirs(log_dir, exist_ok=True)
-        self.log_path = os.path.join(log_dir, f"run_{ts}.jsonl")
+        # ============================================================
+        #  ──  unified directory layout  ─────────────────────────────
+        #  Max/runs/
+        #        └── 2025-08-08_15-45-12/          ← self.run_dir
+        #              ├── log.jsonl              ← self.log_path
+        #              ├── ckpt/                  ← self.ckpt_dir
+        #              └── anim/                  ← self.anim_dir
+        # ============================================================
+        stamp         = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.stamp    = stamp                     # expose in case user wants it
+        self.run_dir  = Path(log_root).expanduser() / stamp
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+
+        self.log_path = str((self.run_dir / "log.jsonl").resolve())
+        self.ckpt_dir = str((self.run_dir / "ckpt").resolve())
+        self.anim_dir = str((self.run_dir / "anim").resolve())
+        Path(self.ckpt_dir).mkdir(exist_ok=True)
+        Path(self.anim_dir).mkdir(exist_ok=True)
+
         self.meta: List[Dict] = []
-        # file naming helpers ------------------------------------------
-        self.run_stamp = os.path.basename(self.log_path)[4:-6]   # strip 'run_' + '.jsonl'
-        self.ckpt_dir  = os.path.join(log_dir, f"ckpt_{self.run_stamp}")
-        os.makedirs(self.ckpt_dir, exist_ok=True)
 
         # pruning parameters
         self.prune      = prune
@@ -373,9 +385,7 @@ class DSGDASolver:
 
     # ------------------------------------------------------------------
     def save_checkpoint(self, tag: str | int):
-        """Persist current parameters & momentum buffers.
-        The file is written to  ckpt_RUNSTAMP/ckpt_{tag}.pt  ."""
-        fname = os.path.join(self.ckpt_dir, f"ckpt_{tag}.pt")
+        fname = Path(self.ckpt_dir) / f"ckpt_{tag}.pt"
         torch.save({
             "iter"     : tag,
             "p1_state" : self.p1.state_dict(),
@@ -383,5 +393,7 @@ class DSGDASolver:
             "buf_p1"   : [m.clone().cpu() for m in self.buf_p1.m],
             "buf_p2"   : [m.clone().cpu() for m in self.buf_p2.m],
             "spec"     : self.game.spec,
+            "meta_log"    : self.meta,
+            "paths"    : self.paths.cpu(),
         }, fname)
         return fname

@@ -15,6 +15,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from IPython.display import HTML
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 class BaseGame(nn.Module):
@@ -91,8 +92,8 @@ class HexnerGame(BaseGame):
     def reset(self):
         batch_size = self.B
         self.x = torch.zeros(batch_size, self.STATE_DIM, device=self.device)
-        self.x[:, 0] = -0.5  # P1 initial x
-        self.x[:, 4] = +0.5  # P2 initial x
+        self.x[:, 0] = -0.3  # P1 initial x
+        self.x[:, 4] = +0.3  # P2 initial x
 
         self.t = torch.zeros(batch_size, device=self.device)
         self.p = torch.full((batch_size, self.I), 1.0 / self.I, device=self.device)
@@ -455,7 +456,7 @@ def default_football_spec(N: int = 11,
                           merge_radius: float = 0.15,
                           # line-up offset ------------------------
                           lineup_off_x: float = -1.2,   # offence x-coord
-                          lineup_def_x: float = -0.4,   # defence x-coord
+                          lineup_def_x: float = -0.8,   # defence x-coord
                           n_substeps: int = 4,
                           ) -> Dict[str, Any]:
     """Return a dict with all tunable parameters collected in one place."""
@@ -931,7 +932,7 @@ class FootballGame(BaseGame):
             init_func=init, blit=True, interval=1000 / fps
         )
         plt.close(fig)
-        return HTML(ani.to_jshtml())
+        return HTML(ani.to_jshtml()), ani
 
     # ────────────────────────────────────────────────────────────────────
     # 2) NEW :  visualize_most_likely   (add below visualize_episode)
@@ -939,7 +940,8 @@ class FootballGame(BaseGame):
     def visualize_most_likely(self,
                               p1_policy: nn.Module,
                               p2_policy: nn.Module,
-                              fps: int = 6):
+                              fps: int = 6,
+                              save_dir: str | None = None):
         """
         One HTML animation per hidden type i★ following the *most-probable*
         public message sequence under the current Player-1 policy.
@@ -987,14 +989,14 @@ class FootballGame(BaseGame):
                 times.append((k + 1) * self.dt)
 
             # --- build animation -----------------------------------
-            html = self._make_football_animation(
+            html, ani = self._make_football_animation(
                 np.array(traj_off),
                 np.array(traj_def),
                 np.array(times),
                 np.array(p_traj),
                 i_star, fps
             )
-            outs.append(html)
+            outs.append((html, ani))
 
         return outs
 
