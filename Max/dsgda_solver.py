@@ -31,6 +31,7 @@ from typing import Dict, List
 import torch
 from torch import Tensor
 from pathlib import Path
+from util import _stamp
 
 # ---------------------------------------------------------------------
 class MomentumBuffer:
@@ -115,7 +116,6 @@ class DSGDASolver:
                                      device=self.device)     # π_old
         # row cache: list[layer] -> dict{idx(int): row_prob (I,)}
         self.row_prev   = [dict() for _ in range(self.K)]
-
         self.belief_curr = [dict() for _ in range(self.K)]
         self.row_curr    = [dict() for _ in range(self.K)]
 
@@ -164,158 +164,192 @@ class DSGDASolver:
         keep_prob_mask = self.prob_prev > eps
         paths_keep = self.paths[keep_prob_mask]            # (S_keep,K)
 
-        # --------- 2. restore paths under rows that jumped by > delta -----
+        # --------- 2) restore paths under rows that jumped by > delta ----------
         restore = []
-        for k in range(K - 1):                              # no leaves
-            for idx, row_old in self.row_prev[k].items():
-                row_new = self.row_curr[k].get(idx)
-                if row_new is None:
-                    continue
-                if torch.sum(torch.abs(row_new - row_old)) > delta:
+        for k in range(K - 1):                    # no restore at leaves
+            ids_old  = self._row_prev_ids[k]
+            rows_old = self._row_prev_rows[k]
+            ids_new  = self._row_curr_ids[k]
+            rows_new = self._row_curr_rows[k]
+            if (ids_old is None) or (rows_old is None) or (ids_new is None) or (rows_new is None):
+                continue
+            # align old→new by node id using searchsorted (ids_new is sorted)
+            pos_in_new = torch.searchsorted(ids_new, ids_old)
+            valid = (pos_in_new >= 0) & (pos_in_new < ids_new.numel()) & (ids_new[pos_in_new] == ids_old)
+            if valid.any():
+                diff = (rows_new[pos_in_new[valid]] - rows_old[valid]).abs().sum(dim=1)
+                jumped = valid.clone()
+                jumped[valid] = diff > delta
+                # expand all subtrees of the jumped nodes
+                idxs_to_restore = ids_old[jumped]                        # (M,)
+                if idxs_to_restore.numel() > 0:
                     depth = K - k - 1
-                    restore.append(self._expand_subgrid(idx, depth))
+                    # vectorised subgrid expansion for many prefixes
+                    # (just loop; M is small; keeps code simple)
+                    for prefix_idx in idxs_to_restore.tolist():
+                        restore.append(self._expand_subgrid(prefix_idx, depth))
+
+        paths_next = paths_keep
         if restore:
             paths_restore = torch.unique(torch.cat(restore, 0), dim=0)
-            paths_next = torch.unique(torch.cat([paths_keep,
-                                                paths_restore], 0), dim=0)
-        else:
-            paths_next = paths_keep
+            paths_next = torch.unique(torch.cat([paths_keep, paths_restore], 0), dim=0)
 
-        # -----------------------------------------------
-        # 3.  parameter count for P1   (belief-entropy rule)
-        # -----------------------------------------------
-        params = 0
-        ent_thr = self.p1.ent_thr
+        # # -----------------------------------------------
+        # # 3.  parameter count for P1   (belief-entropy rule)
+        # # -----------------------------------------------
+        # params = 0
+        # ent_thr = self.p1.ent_thr
 
-        # build map layer→{idx→belief} from belief_curr cache
-        belief_layer = self.belief_curr      # list[K] of dicts{idx: Tensor(I,)}
+        # # build map layer→{idx→belief} from belief_curr cache
+        # belief_layer = self.belief_curr      # list[K] of dicts{idx: Tensor(I,)}
 
-        # gather nodes reachable via paths_next
-        nodes = [set() for _ in range(K)]
-        for seq in paths_next.cpu():
-            idx = 0
-            for k in range(K):
-                if k > 0:
-                    idx = idx * I + seq[k-1].item()
-                nodes[k].add(idx)
+        # # gather nodes reachable via paths_next
+        # nodes = [set() for _ in range(K)]
+        # for seq in paths_next.cpu():
+        #     idx = 0
+        #     for k in range(K):
+        #         if k > 0:
+        #             idx = idx * I + seq[k-1].item()
+        #         nodes[k].add(idx)
 
-        for k in range(K):
-            for idx in nodes[k]:
-                if k == K - 1:
-                    params += I * d                          # last layer
-                    continue
-                belief = belief_layer[k].get(idx)
-                if belief is None:
-                    # safety: treat as non-pure
-                    params += I * (I + d)
-                    continue
-                ent = -(belief * (belief + 1e-12).log()).sum().item()
-                if ent < ent_thr:                            # deeper-pure
-                    params += d
-                else:                                        # non-pure OR first-pure
-                    params += I * (I + d)
+        # for k in range(K):
+        #     for idx in nodes[k]:
+        #         if k == K - 1:
+        #             params += I * d                          # last layer
+        #             continue
+        #         belief = belief_layer[k].get(idx)
+        #         if belief is None:
+        #             # safety: treat as non-pure
+        #             params += I * (I + d)
+        #             continue
+        #         ent = -(belief * (belief + 1e-12).log()).sum().item()
+        #         if ent < ent_thr:                            # deeper-pure
+        #             params += d
+        #         else:                                        # non-pure OR first-pure
+        #             params += I * (I + d)
 
-        self.n_p1_active = params
+        # self.n_p1_active = params
         return paths_next.to(device)
 
     # -----------------------------------------------------------------
     def exact_loss(self, apply_prune) -> torch.Tensor:
         """
-        Exact objective over the currently kept path set `self.paths`.
-
-        *  self.paths   : (S,K) LongTensor of message sequences
-        *  self.row_curr     caches outgoing row distributions per node
-        *  self.belief_curr  caches belief vectors per node
-        *  self.prob_curr    stores  π(seq)  = Σ_i  p(i) π(seq|i)   (for pruning)
+        Vectorised over types:
+        • Evolve the env once over the current path set (batch = S).
+        • Maintain per-seq, per-type path probabilities pi[:, i].
+        • Compute terminal loss per type (cheap) on the final state.
+        Also fills GPU caches used by pruning: _row_curr_ids/_row_curr_rows.
         """
-        paths = self.paths                       # (S,K)
+        paths = self.paths                                  # (S,K)
         S, K  = paths.size()
         I, d  = self.I, self.game.ACTION_DIM
         dev   = self.device
 
-        # fresh caches for this iteration
-        self.row_curr     = [dict() for _ in range(K)]
-        self.belief_curr  = [dict() for _ in range(K)]
-        self.prob_curr    = torch.zeros(S, device=dev)
+        # fresh GPU caches for this iteration (pruning)
+        self._row_curr_ids  = [None for _ in range(self.K)]
+        self._row_curr_rows = [None for _ in range(self.K)]
+        self._bel_curr_ids  = [None for _ in range(self.K)]
+        self._bel_curr_p    = [None for _ in range(self.K)]
+        self.prob_curr      = torch.zeros(S, device=dev)   # π(seq) = Σ_i p0[i] π(seq|i)
 
+        # ── env over sequences only (dynamics do not depend on i★) ─────────
+        env = self.game.__class__(self.game.spec, batch_size=S)
+        # i_star set later only when computing terminal loss
+        env.p.copy_(self.game.P0.repeat(S, 1))
+
+        # per-sequence, per-type path prob
+        pi = torch.ones(S, I, device=dev)                  # π(seq|i) for all i at once
+        running = torch.zeros(S, device=dev)
+
+        for k in range(K):
+            # base-I history index idx(seq, k)
+            if k == 0:
+                idx = torch.zeros(S, dtype=torch.long, device=dev)
+            else:
+                coef = I ** torch.arange(k-1, -1, -1, device=dev)     # (k,)
+                idx  = (paths[:, :k] * coef).sum(-1)                  # (S,)
+
+            # group by node so P1 forward happens once per unique node
+            sorted_idx, order = torch.sort(idx)                       # (S,), (S,)
+            is_new = torch.ones_like(sorted_idx, dtype=torch.bool)
+            is_new[1:] = sorted_idx[1:] != sorted_idx[:-1]
+            node_starts = torch.nonzero(is_new, as_tuple=False).squeeze(1)  # (N_k,)
+            uniq = sorted_idx[node_starts]                                   # (N_k,)
+            rep_seq = order[node_starts]                                     # representative seq per node
+            pos = torch.searchsorted(uniq, idx)                              # map each seq → its node
+
+            # representative observations per node
+            node_obs = {
+                "t": env.t[rep_seq] if env.t.dim() else env.t,      # scalar-safe
+                "x": env.x[rep_seq],                                # (N_k, …)
+                "p": env.p[rep_seq],                                # (N_k, I)
+            }
+
+            # P1 forward once per node
+            out_node = self.p1.forward(node_obs, k)                 # (N_k,I,I), (N_k,I,d)
+            A_logits_node, μ_node = out_node["A_logits"], out_node["μ"]
+
+            # force identity logits at last layer (but keep full μ table)
+            if k == K - 1:
+                id_logits = torch.full((I, I), -50.0, device=dev)
+                id_logits[torch.arange(I, device=dev), torch.arange(I, device=dev)] = 50.0
+                A_logits_node = id_logits.expand_as(A_logits_node)
+
+            # optional deep-pure collapse (belief-entropy) per node (not last layer)
+            if self.prune and k < K - 1:
+                ent_node = -(node_obs["p"] * (node_obs["p"] + 1e-12).log()).sum(-1)  # (N_k,)
+                deep_mask_node = ent_node < self.p1.ent_thr
+                if deep_mask_node.any():
+                    id_logits = torch.full((I, I), -50.0, device=dev)
+                    id_logits[torch.arange(I, device=dev), torch.arange(I, device=dev)] = 50.0
+                    A_logits_node[deep_mask_node] = id_logits
+                    # broadcast a single μ across prototypes for deeper-pure nodes
+                    μ_single = μ_node[deep_mask_node, 0].unsqueeze(1)             # (Ndeep,1,d)
+                    μ_node[deep_mask_node] = μ_single.expand(-1, I, -1)
+
+            # expand node outputs back to sequence order
+            A_logits_seq = A_logits_node[pos]                        # (S,I,I)
+            μ_proto      = μ_node[pos]                               # (S,I,d)
+
+            # per-type row probs for chosen column j_k
+            A_soft_seq = torch.softmax(A_logits_seq, dim=-1)         # (S,I,I)
+            j_k = paths[:, k].view(S, 1, 1)                          # (S,1,1)
+            probs = A_soft_seq.gather(2, j_k.expand(-1, I, 1)).squeeze(-1)  # (S,I)
+            pi *= probs                                               # update π(seq|i) for all i
+
+            # cache type-agnostic q-rows per node for pruning: q = p ⊤ A
+            if apply_prune:
+                q_node = torch.einsum('ni,nij->nj', node_obs["p"], torch.softmax(A_logits_node, dim=-1))  # (N_k,I)
+                self._row_curr_ids[k]  = uniq
+                self._row_curr_rows[k] = q_node
+                self._bel_curr_ids[k]  = uniq
+                self._bel_curr_p[k]    = node_obs["p"]
+
+            # dynamics & running cost use the chosen prototype action (type-agnostic)
+            j_seq = paths[:, k]                                      # (S,)
+            u1    = μ_proto[torch.arange(S, device=dev), j_seq]      # (S,d)
+            u2    = self.p2.forward({"t": env.t, "x": env.x, "p": env.p}, k)  # (S,d)
+
+            env.step(u1, u2)
+            env.p = env._bayes_update(env.p, A_soft_seq, j_seq)
+            running += env._running_loss(u1, u2)
+
+        # terminal loss does depend on i★; compute it cheaply for each type on final state
+        prior = self.game.P0[0]                                      # (I,)
         total = torch.tensor(0.0, device=dev)
-        
-        for i_star in range(I):                                    # loop hidden type
-            seq = paths                                            # (S,K)
-            env = self.game.__class__(self.game.spec, batch_size=S)
+        for i_star in range(I):
             env.i_star.fill_(i_star)
-            env.p.copy_(self.game.P0.repeat(S, 1))
-
-            pi = torch.ones(S, device=dev)                        # path prob p(seq|i★)
-            running = torch.zeros(S, device=dev)
-
-            for k in range(K):
-                # ------------------------------------------------------------------
-                # 1) observation and P1 forward (one subnet per layer)
-                # ------------------------------------------------------------------
-                obs = {"t": env.t, "x": env.x, "p": env.p}
-                out = self.p1.forward(obs, k)                          # NEW
-                A_logits, μ_proto = out["A_logits"], out["μ"]          # (S,I,I), (S,I,d)
-
-                # ------------------------------------------------------------------
-                # 2) optional deep-pure collapse (only when pruning step is active)
-                # ------------------------------------------------------------------
-                if self.prune and k < K - 1:                          # never for last layer
-                    ent = -(env.p * (env.p + 1e-12).log()).sum(-1)     # (S,)
-                    deep_mask = ent < self.p1.ent_thr                  # (S,) bool
-                    if deep_mask.any():
-                        id_logits = self.p1.subnets[k]._ID             # (I,I) buffer
-                        A_logits[deep_mask] = id_logits                # detach – no grad
-                        μ_single = μ_proto[deep_mask, 0].unsqueeze(1)  # (Sd,1,d)
-                        μ_proto[deep_mask] = μ_single.expand(-1, self.I, -1)
-
-                # ------------------------------------------------------------------
-                # 3) row probabilities & path probability update
-                # ------------------------------------------------------------------
-                rows = torch.softmax(A_logits[:, i_star], dim=-1)      # (S,I)
-                j_k  = seq[:, k]                                       # (S,)
-                pi   = pi * rows.gather(1, j_k.unsqueeze(1)).squeeze(1)
-
-                # ------------------------------------------------------------------
-                # 4) cache row / belief for pruning statistics (once per node)
-                # ------------------------------------------------------------------
-                if apply_prune:
-                    # node key = base-I integer of history up to layer k
-                    coef = self.I ** torch.arange(k, -1, -1, device=dev)
-                    node_key = (seq[:, :k+1] * coef).sum(-1)           # (S,)
-                    uniq, inv = torch.unique(node_key, return_inverse=True)
-                    self.row_curr[k].update({
-                        int(u.item()): rows[inv == i][0].detach().cpu()
-                        for i, u in enumerate(uniq)
-                    })
-                    self.belief_curr[k].update({
-                        int(u.item()): env.p[inv == i][0].detach().cpu()
-                        for i, u in enumerate(uniq)
-                    })
-
-                # ------------------------------------------------------------------
-                # 5) dynamics and running cost
-                # ------------------------------------------------------------------
-                u1 = μ_proto[torch.arange(S, device=dev), j_k]         # (S,d)
-                u2 = self.p2.forward(obs, k)                           # (S,d)
-                env.step(u1, u2)
-                env.p = env._bayes_update(env.p,
-                                        torch.softmax(A_logits, -1), j_k)
-                running += env._running_loss(u1, u2)                   # (S,)
-
-            # ---------- terminal cost & accumulation ------------------------
-            L_paths = running + env._terminal_loss()                          # (S,)
-            prior   = self.game.P0[0, i_star]
-            total  += prior * (pi * L_paths).sum()
-
-            # accumulate unconditional path probability for pruning
-            self.prob_curr += prior * pi
+            L_term = env._terminal_loss()                            # (S,)
+            L_tot  = running + L_term                                # (S,)
+            total += prior[i_star] * (pi[:, i_star] * L_tot).sum()
+            # unconditional path probability for pruning
+            self.prob_curr += prior[i_star] * pi[:, i_star]
 
         return total
 
     # ------------------------------------------------------------------
     def step(self) -> Dict[str, float]:
-        t0 = time.perf_counter()
+        t0 = _stamp(self.device)
         
         # ------- build new path set before computing loss --------------
         apply_prune = (
@@ -336,27 +370,28 @@ class DSGDASolver:
                 p.grad.zero_()
 
         # compute loss --------------------------------------------------
-        t1 = time.perf_counter()
+        t1 = _stamp(self.device)
         loss = self.exact_loss(apply_prune)
-        # ---------- rotate caches --------------------------------------
+        # rotate row caches (GPU tensors)
         self.prob_prev = self.prob_curr.detach()
-        self.row_prev  = self.row_curr
+        self._row_prev_ids  = [x if x is None else x.clone()  for x in self._row_curr_ids]
+        self._row_prev_rows = [x if x is None else x.clone()  for x in self._row_curr_rows]
 
-        t2 = time.perf_counter()
+        t2 = _stamp(self.device)
 
         # backward ------------------------------------------------------
         loss.backward()
-        t3 = time.perf_counter()
+        t3 = _stamp(self.device)
 
         # momentum update & clip ---------------------------------------
         self.buf_p1.update(); self.buf_p2.update()
         self.buf_p1.clip_(self.C1); self.buf_p2.clip_(self.C2)
-        t4 = time.perf_counter()
+        t4 = _stamp(self.device)
 
         # param step ----------------------------------------------------
         self.buf_p1.apply_step(ascent=False, lr=self.lr_p1)
         self.buf_p2.apply_step(ascent=True,  lr=self.lr_p2)
-        t5 = time.perf_counter()
+        t5 = _stamp(self.device)
 
         # grads norms ---------------------------------------------------
         g_p1 = torch.stack([m.norm() for m in self.buf_p1.m]).mean().item()

@@ -23,7 +23,7 @@ import game
 importlib.reload(game)
 from game import FootballGame, default_football_spec
 
-spec   = default_football_spec(N=5, horizon=1.5, dt=0.1, device="cuda", n_substeps=4)
+spec   = default_football_spec(N=5, horizon=1.5, dt=0.5, device="cuda", n_substeps=4)
 
 batch_size = 1
 game   = FootballGame(spec, batch_size)
@@ -37,7 +37,7 @@ importlib.reload(player)
 from player import CAMS_INFORMED, BR
 
 player_spec = {
-    'hidden': 128,           # policy network width
+    'hidden': 32,           # policy network width
     'temperature': 1.0,     # logit temperature for mixed strategy: higher = less entropy
     "init_scale": 1e-2,     # random initialization for root strategy parameters
     "ent_thr_belief": 1e-2  # threshold of belief entropy for pruning
@@ -66,8 +66,8 @@ solver = DSGDASolver(game, p1, p2, solver_spec, prune=True, prune_every=100, pru
 # ---------------------------------------------------------------------
 # 4. Training loop  ----------------------------------------------------
 # ---------------------------------------------------------------------
-EPOCHS     = 100_000      # number of DSGDA iterations
-VIS_EVERY  = 5000        # visualize solution frequency
+EPOCHS     = 1000      # number of DSGDA iterations
+VIS_EVERY  = 100        # visualize solution frequency
 
 for epoch in range(EPOCHS):
     stats = solver.step()

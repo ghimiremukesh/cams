@@ -34,6 +34,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import torch
 from torch import Tensor
+import time
 
 # -----------------------------------------------------------
 
@@ -196,3 +197,7 @@ def plot_run(log_path: str, save_png: str | None = None):
     if save_png:
         plt.savefig(save_png, dpi=150)
     plt.show()
+
+def _stamp(dev):
+    torch.cuda.synchronize(dev)
+    return time.perf_counter()

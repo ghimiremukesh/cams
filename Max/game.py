@@ -372,14 +372,14 @@ class HexnerGame(BaseGame):
                 times.append((k + 1) * self.dt)
 
             # -------- build HTML animation (uses existing helper) ----------
-            html = self._make_hexner_animation(
+            html, ani = self._make_hexner_animation(
                 np.array(traj_p1),
                 np.array(traj_p2),
                 np.array(times),
                 np.array(p_belief),
                 i_star, fps
             )
-            outs.append(html)
+            outs.append((html, ani))
 
         return outs
 
@@ -424,7 +424,7 @@ class HexnerGame(BaseGame):
                                     init_func=init, blit=True,
                                     interval=1000/fps)
         plt.close(fig)
-        return HTML(ani.to_jshtml())
+        return HTML(ani.to_jshtml()), ani
 
 
 
