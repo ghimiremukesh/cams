@@ -92,8 +92,8 @@ class HexnerGame(BaseGame):
     def reset(self):
         batch_size = self.B
         self.x = torch.zeros(batch_size, self.STATE_DIM, device=self.device)
-        self.x[:, 0] = -0.3  # P1 initial x
-        self.x[:, 4] = +0.3  # P2 initial x
+        self.x[:, 0] = -0.5  # P1 initial x
+        self.x[:, 4] = +0.5  # P2 initial x
 
         self.t = torch.zeros(batch_size, device=self.device)
         self.p = torch.full((batch_size, self.I), 1.0 / self.I, device=self.device)
@@ -206,119 +206,7 @@ class HexnerGame(BaseGame):
     def summary(self, stats: Dict[str, float]):
         print(f"[Iter {stats['iter']:04d}]  L={stats['loss']:+.3f}  |g₁|={stats['g1']:.3f}  |g₂|={stats['g2']:.3f}")
 
-    # # ------------------------------------------------------------------
-    # #  Visualisation helper (no diff_env dependency)
-    # # ------------------------------------------------------------------
-    # def visualize_episode(self, p1_policy, p2_policy, fps: int = 5):
-    #     """
-    #     Return an HTML animation of a single episode using the game's own
-    #     dynamics and the supplied time-indexed policies.
-    #     """
-    #     import numpy as np
-    #     import matplotlib.pyplot as plt
-    #     from matplotlib import animation
-    #     from IPython.display import HTML
-    #     import torch
-
-    #     # ---------- initialise -----------------------------------------
-    #     self.reset()
-    #     obs = {"x": self.x, "p": self.p, "t": self.t}
-    #     i_star = self.i_star
-    #     p_traj   = [self.p[0, 0].item()]            # belief at t = 0
-    #     t_traj   = [0.0]
-    #     p1_xy    = [self.x[0, 0:2].cpu().numpy()]   # P1 pos at t = 0
-    #     p2_xy    = [self.x[0, 4:6].cpu().numpy()]   # P2 pos at t = 0
-
-    #     # print("\n========== DEBUG ROLL-OUT ==========")
-    #     for step in range(self.K):
-    #         # ---------- policy queries ------------------------------------------
-    #         with torch.no_grad():
-    #             u1, misc1 = p1_policy.action_only(obs, i_star, step)
-    #             u2, _     = p2_policy.action_only(obs, step)
-
-    #         # ---------- diagnostics ---------------------------------------------
-    #         print(f"\n[t = {step*self.dt: .2f} s]")
-    #         # full probability matrix A  (I×I)
-    #         A_mat = misc1["A"][0].cpu().detach().numpy()           # (I,I)
-    #         print("P1 probability matrix  A :")
-    #         for r in range(self.I):
-    #             print(f"  row {r}:", np.round(A_mat[r], 3))
-
-    #         # prototype action table μ  (shared across rows)
-    #         mu_tbl = misc1["μ"][0].cpu().detach().numpy()              # (I,2)
-    #         print("Global prototype actions μ :")
-    #         for idx, vec in enumerate(mu_tbl):
-    #             print(f"  idx {idx}: {np.round(vec, 3)}")
-
-    #         j = misc1["j"].item()
-    #         print("Chosen prototype idx :", j)
-    #         print("u₁ action       :", u1.squeeze(0).cpu().detach().numpy())
-    #         print("u₂ action       :", u2.squeeze(0).cpu().detach().numpy())
-
-    #         # advance dynamics & belief ---------------------------------
-    #         self.step(u1, u2)
-    #         self.p = self._bayes_update(self.p, misc1["A"], misc1["j"])
-
-    #         # cache for plotting ----------------------------------------
-    #         obs = {"x": self.x, "p": self.p, "t": self.t}
-    #         p1_xy.append(self.x[0, 0:2].cpu().detach().numpy())
-    #         p2_xy.append(self.x[0, 4:6].cpu().detach().numpy())
-    #         p_traj.append(self.p[0, 0].item())
-    #         t_traj.append((step + 1) * self.dt)
-
-    #     # print("====================================\n")
-
-    #     # ------------------------------------------------------------------------
-    #     #  Build the Matplotlib animation
-    #     # ------------------------------------------------------------------------
-    #     p_belief = np.array(p_traj)               # prepend t=0 value
-    #     times    = np.array(t_traj)
-    #     p1_xy    = np.vstack(p1_xy)
-    #     p2_xy    = np.vstack(p2_xy)
-
-    #     fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(5, 8),
-    #                                 gridspec_kw={"height_ratios": [3, 1]})
-    #     # ----- top: trajectories ----------------------------------------------
-    #     ax0.set_xlim(-self.BOX_POS - .2, self.BOX_POS + .2)
-    #     ax0.set_ylim(-self.BOX_POS - .2, self.BOX_POS + .2)
-    #     ax0.set_aspect("equal")
-    #     ax0.set_title("Hexner – trajectories")
-
-    #     # target markers
-    #     for idx, tgt in enumerate(self.Z_TARGETS.cpu().numpy()):
-    #         star_kw = dict(marker="*", ms=14,
-    #                     color="black" if idx == i_star.item() else "grey")
-    #         ax0.plot(tgt[0], tgt[1], **star_kw)
-
-    #     p1_sc = ax0.scatter([], [], s=80, c="red")
-    #     p2_sc = ax0.scatter([], [], s=80, c="blue")
-
-    #     # ----- bottom: belief ---------------------------------------------------
-    #     ax1.set_xlim(0, self.T)
-    #     ax1.set_ylim(-.05, 1.05)
-    #     ax1.set_xlabel("time (s)")
-    #     ax1.set_ylabel("public belief p[type-0]")
-    #     ax1.plot(times, p_belief, color="blue")
-    #     ax1.axhline(y=float(i_star.item() == 0), color="black", ls="--")
-    #     ax1.set_title("Belief trajectory")
-
-    #     def init():
-    #         p1_sc.set_offsets(np.empty((0, 2)))
-    #         p2_sc.set_offsets(np.empty((0, 2)))
-    #         return p1_sc, p2_sc
-
-    #     def update(frame):
-    #         p1_sc.set_offsets(p1_xy[frame])
-    #         p2_sc.set_offsets(p2_xy[frame])
-    #         return p1_sc, p2_sc
-
-    #     ani = animation.FuncAnimation(fig, update, frames=len(times),
-    #                                 init_func=init, blit=True,
-    #                                 interval=1000 / fps)
-    #     plt.close(fig)
-    #     return HTML(ani.to_jshtml())
-
-    # ---------------------------------------------------------------
+    # ------------------------------------------------------------------
     def visualize_most_likely(self, p1_policy, p2_policy, fps: int = 6):
         """
         Render one HTML animation per hidden type i★ by following the
@@ -444,6 +332,9 @@ class HexnerGame(BaseGame):
 # ---------------------------------------------------------
 # Helper: default spec generator
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+# Helper: default spec generator
+# ---------------------------------------------------------
 def default_football_spec(N: int = 11,
                           horizon: float = 2.0,
                           dt: float = 0.05,
@@ -463,7 +354,7 @@ def default_football_spec(N: int = 11,
     twoN = 2 * N          # actions per team (ax,ay for every player)
     eye  = torch.eye(twoN)
 
-    return {
+    spec = {
         "tau"        : dt,
         "T"          : horizon,
         "device"     : device,
@@ -481,8 +372,8 @@ def default_football_spec(N: int = 11,
         "LINEUP_OFF_X": lineup_off_x,
         "LINEUP_DEF_X": lineup_def_x,
         "TACKLE_PENALTY": 5.0,      # extra −yards if tackled (makes loss big) 
-        "RB_DEPTH"   : 0.25,        # depth of RB position
-        "n_substeps" : n_substeps,    # substeps to simulate contact
+        "RB_DEPTH"   : 0.25,        # depth of RB position (used only if formation not provided)
+        "n_substeps" : n_substeps,  # substeps to simulate contact
         # ---------------- payoff table -----------------
         #  columns:  [ α_y  ]  (sign controls bias)
         "P_OFFSETS": torch.tensor([
@@ -490,6 +381,85 @@ def default_football_spec(N: int = 11,
             [+0.8],   # type-1  edge-sweep   :  +0.8 |y|
         ]),
     }
+
+    # If N==11, inject a realistic formation (I-formation vs 4-3 base)
+    if N == 11:
+        # Coordinate system:
+        #  • x increases toward the defence (offence starts at more-negative x)
+        #  • y is lateral, bounded by ±BOX_POS
+        off_x = lineup_off_x
+        def_x = lineup_def_x
+
+        # ----- OFFENCE (I-formation, 21 personnel) -------------------------
+        # Index map (offence):
+        #   0 LT, 1 LG, 2 C, 3 RG, 4 RT, 5 TE (right), 6 WR-L, 7 WR-R,
+        #   8 QB, 9 FB, 10 RB
+        y_ol = torch.tensor([-0.80, -0.40, 0.00, 0.40, 0.80])  # OL spread
+        te_y  = torch.tensor( 1.10)
+        wrL_y = torch.tensor(-1.45)
+        wrR_y = torch.tensor( 1.45)
+        QB_x  = off_x - 0.20
+        FB_x  = off_x - 0.30
+        RB_x  = off_x - 0.40
+
+        off_pos = torch.stack([
+            torch.tensor([off_x, y_ol[0]]),  # LT
+            torch.tensor([off_x, y_ol[1]]),  # LG
+            torch.tensor([off_x, y_ol[2]]),  # C
+            torch.tensor([off_x, y_ol[3]]),  # RG
+            torch.tensor([off_x, y_ol[4]]),  # RT
+            torch.tensor([off_x, te_y     ]),# TE (right)
+            torch.tensor([off_x, wrL_y    ]),# WR-L (X)
+            torch.tensor([off_x, wrR_y    ]),# WR-R (Z)
+            torch.tensor([QB_x, 0.0       ]),# QB
+            torch.tensor([FB_x, 0.20      ]),# FB
+            torch.tensor([RB_x, 0.00      ]),# RB (ball-carrier)
+        ], dim=0)
+
+        # ----- DEFENCE (4-3 base) ------------------------------------------
+        # Index map (defence):
+        #   0 LDE, 1 LDT, 2 RDT, 3 RDE, 4 SLB, 5 MLB, 6 WLB,
+        #   7 CB-L, 8 CB-R, 9 FS, 10 SS
+        y_dl = torch.tensor([-0.60, -0.20, 0.20, 0.60])  # DL alignments
+        y_lb = torch.tensor([-0.80,  0.00, 0.80])        # SLB, MLB, WLB
+        CB_yL, CB_yR = -1.45, 1.45
+        FS_y, SS_y   = -0.90, 0.90
+
+        DL_x = def_x
+        LB_x = def_x - 0.15
+        CB_x = def_x + 0.05        # slightly pressed
+        S_x  = def_x - 0.45        # deep safeties
+
+        def_pos = torch.stack([
+            torch.tensor([DL_x, y_dl[0]]),  # LDE
+            torch.tensor([DL_x, y_dl[1]]),  # LDT
+            torch.tensor([DL_x, y_dl[2]]),  # RDT
+            torch.tensor([DL_x, y_dl[3]]),  # RDE
+            torch.tensor([LB_x, y_lb[0]]),  # SLB
+            torch.tensor([LB_x, y_lb[1]]),  # MLB
+            torch.tensor([LB_x, y_lb[2]]),  # WLB
+            torch.tensor([CB_x, CB_yL   ]), # CB-L
+            torch.tensor([CB_x, CB_yR   ]), # CB-R
+            torch.tensor([S_x , FS_y    ]), # FS
+            torch.tensor([S_x , SS_y    ]), # SS
+        ], dim=0)
+
+        # Enforce bounds softly by clipping within the playable box
+        off_pos[:, 0] = off_pos[:, 0].clamp(-box_pos, box_pos)
+        off_pos[:, 1] = off_pos[:, 1].clamp(-box_pos, box_pos)
+        def_pos[:, 0] = def_pos[:, 0].clamp(-box_pos, box_pos)
+        def_pos[:, 1] = def_pos[:, 1].clamp(-box_pos, box_pos)
+
+        spec["OFF_POS"]  = off_pos
+        spec["DEF_POS"]  = def_pos
+        spec["RB_INDEX"] = 10
+        spec["PLAY_ROLES"] = {
+            "offence": ["LT","LG","C","RG","RT","TE","WR-L","WR-R","QB","FB","RB"],
+            "defence": ["LDE","LDT","RDT","RDE","SLB","MLB","WLB","CB-L","CB-R","FS","SS"],
+            "notes": "I-formation (21 personnel) vs 4-3 base"
+        }
+
+    return spec
 
 
 # ---------------------------------------------------------
@@ -522,11 +492,22 @@ class FootballGame(BaseGame):
         self.R1        = spec["R1"].to(self.device)
         self.R2        = spec["R2"].to(self.device)
 
+        # cache optional formation tensors on device and align N if provided
+        self.OFF_POS = self.spec.get("OFF_POS")
+        self.DEF_POS = self.spec.get("DEF_POS")
+        if self.OFF_POS is not None:
+            self.OFF_POS = self.OFF_POS.to(self.device)
+        if self.DEF_POS is not None:
+            self.DEF_POS = self.DEF_POS.to(self.device)
+        # If explicit positions exist and disagree with N, trust the formation
+        if (self.OFF_POS is not None) and (self.OFF_POS.shape[0] != self.N):
+            self.N = int(self.OFF_POS.shape[0])
+
         self.merge_r2   = spec["MERGE_RADIUS"] ** 2
         self.P_OFFSETS  = spec["P_OFFSETS"].to(self.device)  # shape (I,1)
         self.tackle_pen  = spec["TACKLE_PENALTY"]  
         self.RB_DEPTH   = spec["RB_DEPTH"]
-        self.BALL_IDX = 3          # RB in a 5-man offence
+        self.BALL_IDX = int(self.spec.get("RB_INDEX", self.N // 2))
         self.w_tackle_thr = self.merge_r2
         self.k_tackle     = 60.0          # steepness; 60 ≈ 4 cm logistic band
 
@@ -584,25 +565,41 @@ class FootballGame(BaseGame):
 
         B, N, dev = self.B, self.N, self.device
 
-        # ---------- exact I-formation coordinates -------------------------
-        y_off = torch.tensor([0.00,  0.30, -0.30, 0.00,  0.60], device=dev)  # offence
-        y_def = torch.tensor([0.20, -0.20,  0.50, -0.50, 0.00], device=dev)  # defence
+        # If explicit positions are provided (e.g., 11v11 formation), use them.
+        if (self.OFF_POS is not None) and (self.DEF_POS is not None) \
+           and (self.OFF_POS.shape == (self.N, 2)) and (self.DEF_POS.shape == (self.N, 2)):
+            pos1_row = self.OFF_POS
+            pos2_row = self.DEF_POS
+        else:
+            # ---------- procedural line-up for arbitrary N (fallback) ----------
+            lanes = torch.linspace(-0.9 * self.BOX_POS, 0.9 * self.BOX_POS, steps=self.N, device=dev)
 
-        off_x  = self.spec["LINEUP_OFF_X"]            # −1.20
-        def_x  = self.spec["LINEUP_DEF_X"]            # −0.40
-        rb_dx  = self.spec["RB_DEPTH"]                # 0.25
+            # Offence (P1): everyone on LOS at x = off_x, RB deeper by RB_DEPTH
+            y_off = lanes.clone()
+            off_x = self.spec["LINEUP_OFF_X"]
+            rb_dx = self.spec["RB_DEPTH"]
+            x_off = torch.full((self.N,), off_x, device=dev)
+            rb_idx = int(self.BALL_IDX)
+            if 0 <= rb_idx < self.N:
+                x_off[rb_idx] = off_x - rb_dx
 
-        # offence x-coordinates: RB deeper, others on LOS
-        x_off = torch.full_like(y_off, off_x)
-        x_off[self.BALL_IDX] = off_x - rb_dx          # tailback depth
+            # Defence (P2): place DL on LOS, LBs slightly deeper, DBs deepest.
+            y_def = lanes.clone()
+            def_x = self.spec["LINEUP_DEF_X"]
+            x_def = torch.full((self.N,), def_x, device=dev)
 
-        # defence x-coordinates (DLs on LOS, LBs 0.2 m deeper, S deepest)
-        x_def = torch.tensor([def_x, def_x,
-                            def_x - 0.20, def_x - 0.20,
-                            def_x + 0.30], device=dev)
+            # Assign depth by role groups using center-first ordering
+            perm = torch.argsort(torch.abs(y_def))  # center-first ordering
+            n_dl = min(4, self.N)
+            n_lb = min(3, max(self.N - n_dl - 4, 0))
+            n_db = self.N - n_dl - n_lb
+            x_def[perm[:n_dl]] = def_x
+            x_def[perm[n_dl:n_dl + n_lb]] = def_x - 0.20
+            if n_db > 0:
+                x_def[perm[n_dl + n_lb:]] = def_x - 0.50
 
-        pos1_row = torch.stack([x_off, y_off], -1)
-        pos2_row = torch.stack([x_def, y_def], -1)
+            pos1_row = torch.stack([x_off, y_off], dim=-1)  # (N,2)
+            pos2_row = torch.stack([x_def, y_def], dim=-1)  # (N,2)
 
         pos1       = pos1_row.unsqueeze(0).repeat(B, 1, 1)   # (B,N,2)
         pos2       = pos2_row.unsqueeze(0).repeat(B, 1, 1)
@@ -612,57 +609,12 @@ class FootballGame(BaseGame):
         self.x     = self._merge_state(pos1, vel1, pos2, vel2).to(dev)  # (B,STATE_DIM)
         self.t     = torch.zeros(B, device=dev)
 
-        self.P0    = torch.full((1, self.I), 1.0 / self.I, device=dev)   # <-- add this
+        self.P0    = torch.full((1, self.I), 1.0 / self.I, device=dev)
         self.p     = self.P0.repeat(B, 1)                                # public belief
-        self.i_star= torch.randint(0, self.I, (B,), device=dev)         # hidden ball-carrier
+        self.i_star= torch.randint(0, self.I, (B,), device=dev)          # hidden ball-carrier
         self.traj  : List[Dict[str, Any]] = []
 
         return {"x": self.x.detach(), "p": self.p.detach(), "t": self.t.detach()}
-
-    # -----------------------------------------------------
-    #   Physics helpers
-    # -----------------------------------------------------
-    # def _compute_repulsion(self, pos_all: Tensor) -> Tensor:
-    #     """
-    #     Smooth pair-wise repulsive acceleration for every player
-    #     (both teams together).  
-    #     pos_all: (B, 2N, 2) – concatenated positions.
-    #     Returns a tensor of the same leading shape with Δ̈ contributions.
-    #     """
-    #     B, M, _ = pos_all.shape                            # M = 2N
-    #     diff    = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)     # (B,M,M,2)
-    #     dist2   = (diff**2).sum(-1) + self.eps                      # (B,M,M)
-
-    #     mask    = (dist2 < self.r_cut2) & (dist2 > 0)              # ignore self-pairs
-    #     # magnitude: θ p / (‖Δx‖²)^{p/2+1}
-    #     mag     = self.theta * self.rep_power * mask / (dist2 ** (self.rep_power/2 + 1))  # (B,M,M)
-    #     force   = (mag.unsqueeze(-1) * diff).sum(2)                # (B,M,2) signed
-
-    #     return force                                               # acceleration contribution
-
-    # def _contact_acc(self, pos_all: Tensor, vel_all: Tensor) -> Tensor:
-    #     """
-    #     Kelvin–Voigt spring + dashpot between OPPOSING players only.
-    #     Return accelerations (B,2N,2).  Masses are 1.
-    #     """
-    #     diff  = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)       # (B,M,M,2)
-    #     dist2 = (diff**2).sum(-1) + 1e-6
-    #     mask  = (dist2 < self.r_cut2).float() * self.opp_mask     # include only opponents
-
-    #     r     = dist2.sqrt()
-    #     n     = diff / r.unsqueeze(-1)
-
-    #     # spring -------------------------
-    #     delta = (self.r_cut - r).clamp(min=0.0)
-    #     F_s   = self.rep_k * delta.unsqueeze(-1) * n
-
-    #     # dash-pot -----------------------
-    #     v_rel = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)
-    #     vn    = (v_rel * n).sum(-1, keepdim=True).clamp(max=0.0)  # only approaching
-    #     F_d   = self.rep_c * vn * n
-
-    #     F = (F_s + F_d) * mask.unsqueeze(-1)
-    #     return F.sum(2)               # (B,M,2)
 
     # ------------------------------------------------------------------
     def _merge(self,
@@ -692,35 +644,21 @@ class FootballGame(BaseGame):
         acc2_new = (acc2 + (w_t.unsqueeze(-1) * acc1.unsqueeze(1)).sum(2)) / (1 + w_sum_d)
 
         return vel1_new, vel2_new, acc1_new, acc2_new, w           # w reused later
-    
-    # ------------------------------------------------------------------
-    # def _inelastic_impulse(self, pos_all, vel_all):
-    #     diff  = pos_all.unsqueeze(2) - pos_all.unsqueeze(1)
-    #     dist2 = (diff**2).sum(-1) + 1e-6
-    #     mask  = (dist2 < self.merge_r2).float() * self.opp_mask   # only within merge radius
-    #     r     = dist2.sqrt()
-    #     n     = diff / r.unsqueeze(-1)
-
-    #     v_rel = vel_all.unsqueeze(2) - vel_all.unsqueeze(1)
-    #     vn    = (v_rel * n).sum(-1, keepdim=True)
-    #     approaching = (vn < 0).float() * mask.unsqueeze(-1)
-
-    #     j = -vn * approaching * 0.5                               # masses=1, e=0
-    #     vel_all = vel_all + (j * n).sum(2) - (j * n).sum(1)
-    #     return vel_all
 
     # -----------------------------------------------------
     def _running_loss(self,
-                    u1: Tensor, u2: Tensor) -> Tensor:
+                      u1: Tensor, u2: Tensor,
+                      p_tackle_now: Tensor | None = None) -> Tensor:
         """
         Quadratic control effort + tackle penalty per step.
-        tackled : (B,) bool for the CURRENT macro-step.
+        If p_tackle_now is None, compute it from the last merge weights.
         """
         cost_u1 = (u1 @ self.R1 @ u1.T).diag()
         cost_u2 = (u2 @ self.R2 @ u2.T).diag()
-        ctrl    = 0.1 * 0.5 * (cost_u1 - cost_u2) * self.dt       # made this small to encourage movement
-        tackled = self._tackle_flag(self.w_last)
-        tack    = self.tackle_pen * tackled
+        ctrl    = 0.1 * 0.5 * (cost_u1 - cost_u2) * self.dt
+        if p_tackle_now is None:
+            p_tackle_now = self._tackle_flag(self.w_last)
+        tack    = self.tackle_pen * p_tackle_now
         return ctrl + tack
 
     # -----------------------------------------------------

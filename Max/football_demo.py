@@ -23,7 +23,7 @@ import game
 importlib.reload(game)
 from game import FootballGame, default_football_spec
 
-spec   = default_football_spec(N=5, horizon=1.5, dt=0.5, device="cuda", n_substeps=4)
+spec   = default_football_spec(N=11, horizon=1.0, dt=0.5, device="cuda", n_substeps=4)
 
 batch_size = 1
 game   = FootballGame(spec, batch_size)
