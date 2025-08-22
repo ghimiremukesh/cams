@@ -34,11 +34,11 @@ from solver_jax import DSGDASolver
 # =========================================================
 SEED        = 1
 BATCH_SIZE  = 1
-EPOCHS      = 1000
-VIS_EVERY   = 100
+EPOCHS      = 1000_000
+VIS_EVERY   = 5000
 
 LOG_ROOT    = "Max/runs"   # run folders like PyTorch version
-HORIZON     = 1.0
+HORIZON     = 1.5
 DT          = 0.5
 N_SUBSTEPS  = 4
 N_PLAYERS   = 11
@@ -49,14 +49,14 @@ SHOW_DEBUG  = False # extra shape/NaN checks (kept minimal here)
 
 # Player/solver hyperparams (parity with PyTorch)
 PLAYER_SPEC = {
-    "hidden": 32,
+    "hidden": 128,
     "temperature": 1.0,     # used in viz misc; training uses raw logits
-    "init_scale": 1e-2,
+    "init_scale": 1e-1,
     "ent_thr_belief": 1e-2, # kept for parity; unused (no pruning)
 }
 SOLVER_SPEC = {
-    "lr_p1": 3e-3,
-    "lr_p2": 1e-2,
+    "lr_p1": 3e-2,
+    "lr_p2": 1e-1,
     "momentum": 0.6,
     "C2_p1": 10.0,
     "C2_p2": 10.0,
@@ -143,14 +143,14 @@ def visualize_most_likely(
         times    = [0.0]
 
         for k in range(game.K):
-            out = p1_model.apply(p1_params, obs, k)     # {"A_logits": (1,I,I), "μ": (1,I,d)}
+            out = p1_model.apply({"params": p1_params}, obs, k)     # {"A_logits": (1,I,I), "μ": (1,I,d)}
             A = jax.nn.softmax(out["A_logits"][0], axis=-1)  # (I,I)
             row = A[i_star]
             j_k = int(jnp.argmax(row))
 
             mu_tbl = out["μ"][0]                        # (I,d)
             u1 = mu_tbl[j_k][None, :]                   # (1,d)
-            u2 = p2_model.apply(p2_params, obs, k)      # (1,d)
+            u2 = p2_model.apply({"params": p2_params}, obs, k)      # (1,d)
 
             state, p_tackle_now = game.step(state, u1, u2)
             state = type(state)(x=state.x, t=state.t,

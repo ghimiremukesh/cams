@@ -12,7 +12,7 @@
 # =========================================================
 
 from __future__ import annotations
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -35,6 +35,12 @@ def _features_from_obs(obs: Dict[str, jnp.ndarray], I: int) -> jnp.ndarray:
     x = obs["x"]
     p = obs["p"][..., : max(I - 1, 0)]
     return jnp.concatenate([x, p], axis=-1)
+
+
+def _identity_logits(I: int) -> jnp.ndarray:
+    """Large +diag/−offdiag logits so softmax ≈ identity."""
+    off = jnp.full((I, I), -50.0, dtype=F32)
+    return off.at[jnp.arange(I), jnp.arange(I)].set(50.0)
 
 
 # =========================================================
@@ -62,21 +68,13 @@ class _CAMSNet(nn.Module):
         mu_tbl  = jnp.tanh(mu_tbl) * jnp.asarray(self.box_acc, dtype=F32)
 
         if self.last_layer:
-            # fixed identity logits
             eye_logits = _identity_logits(self.I)             # (I,I)
             A_logits = jnp.broadcast_to(eye_logits, (feats.shape[0], self.I, self.I))
         else:
-            # learned logits (B, I, I)
             Alog_flat = nn.Dense(self.I * self.I)(h)          # (B, I*I)
             A_logits  = Alog_flat.reshape(feats.shape[0], self.I, self.I)
 
         return {"A_logits": A_logits, "μ": mu_tbl}
-
-
-def _identity_logits(I: int) -> jnp.ndarray:
-    """Large +diag/−offdiag logits so softmax ≈ identity."""
-    off = jnp.full((I, I), -50.0, dtype=F32)
-    return off.at[jnp.arange(I), jnp.arange(I)].set(50.0)
 
 
 # =========================================================
@@ -101,20 +99,19 @@ class CAMSInformed(nn.Module):
             "root_mu", nn.initializers.normal(stddev=1e-2), (self.I, self.d)
         )
 
-        # Step nets for k = 1 .. K-1
-        self.subnets = []
-        for k in range(1, self.K):
-            self.subnets.append(
-                _CAMSNet(
-                    I=self.I,
-                    d=self.d,
-                    feat_dim=self.feat_dim,
-                    box_acc=self.box_acc,
-                    hidden=self.hidden,
-                    last_layer=(k == self.K - 1),
-                    name=f"step{k}",
-                )
+        # Step nets for k = 1 .. K-1 (assign once; no mutation)
+        self.subnets = tuple(
+            _CAMSNet(
+                I=self.I,
+                d=self.d,
+                feat_dim=self.feat_dim,
+                box_acc=self.box_acc,
+                hidden=self.hidden,
+                last_layer=(k == self.K - 1),
+                name=f"step{k}",
             )
+            for k in range(1, self.K)
+        )
 
     def __call__(self, obs: Dict[str, jnp.ndarray], k: int) -> Dict[str, jnp.ndarray]:
         """
@@ -128,7 +125,6 @@ class CAMSInformed(nn.Module):
             B = feats.shape[0]
             A = jnp.broadcast_to(self.root_logits[None, ...], (B, self.I, self.I))
             mu_tbl = jnp.broadcast_to(self.root_mu[None, ...], (B, self.I, self.d))
-            # scale μ to box_acc and squash
             mu_tbl = jnp.tanh(mu_tbl) * jnp.asarray(self.box_acc, dtype=F32)
             return {"A_logits": A, "μ": mu_tbl}
 
@@ -162,20 +158,21 @@ class BR(nn.Module):
 
     def setup(self):
         self.root_mu = self.param("root_mu", nn.initializers.normal(stddev=1e-2), (self.d,))
-        self.subnets = []
-        for k in range(1, self.K):
-            self.subnets.append(
-                _BRNet(
-                    feat_dim=self.feat_dim,
-                    d=self.d,
-                    box_acc=self.box_acc,
-                    hidden=self.hidden,
-                    name=f"step{k}",
-                )
+
+        # Step nets for k = 1 .. K-1 (assign once; no mutation)
+        self.subnets = tuple(
+            _BRNet(
+                feat_dim=self.feat_dim,
+                d=self.d,
+                box_acc=self.box_acc,
+                hidden=self.hidden,
+                name=f"step{k}",
             )
+            for k in range(1, self.K)
+        )
 
     def __call__(self, obs: Dict[str, jnp.ndarray], k: int) -> jnp.ndarray:
-        feats = jnp.concatenate([obs["x"], obs["p"][..., :-1] if obs["p"].shape[-1] > 1 else obs["p"][..., :0]], axis=-1)
+        feats = _features_from_obs(obs, I=obs["p"].shape[-1])  # concat x + p[..., :I-1]
         if k == 0:
             B = feats.shape[0]
             mu = jnp.broadcast_to(self.root_mu[None, :], (B, self.d))
@@ -191,7 +188,7 @@ class BR(nn.Module):
 #   - p2_action_only returns u and {"μ": u}
 # =========================================================
 def p1_forward(model: CAMSInformed, params, obs: Dict[str, jnp.ndarray], k: int) -> Dict[str, jnp.ndarray]:
-    return model.apply(params, obs, k)
+    return model.apply({"params": params}, obs, k)
 
 
 def p1_action_only(
@@ -202,14 +199,13 @@ def p1_action_only(
     k: int,
     temperature: float = DEFAULT_TEMP,
 ) -> Tuple[jnp.ndarray, Dict[str, jnp.ndarray]]:
-    out = model.apply(params, obs, k)  # {"A_logits": (B,I,I), "μ": (B,I,d)}
+    out = model.apply({"params": params}, obs, k)  # {"A_logits": (B,I,I), "μ": (B,I,d)}
     A_logits = out["A_logits"]
     mu_tbl   = out["μ"]
 
     B, I, _ = A_logits.shape
     temp = jnp.asarray(temperature, dtype=F32)
 
-    # Row for the true type i★
     row_logits = A_logits[jnp.arange(B), i_star]              # (B, I)
     j = jnp.argmax(row_logits, axis=-1)                       # (B,)
 
@@ -233,5 +229,5 @@ def p2_action_only(
     obs: Dict[str, jnp.ndarray],
     k: int,
 ) -> Tuple[jnp.ndarray, Dict[str, jnp.ndarray]]:
-    u = model.apply(params, obs, k)  # (B, d)
+    u = model.apply({"params": params}, obs, k)  # (B, d)
     return u, {"μ": u}
