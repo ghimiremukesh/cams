@@ -23,6 +23,27 @@ matplotlib.use("Agg")  # headless/back-end agnostic CPU rendering
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
+# add tqdm for progress bar
+from tqdm import tqdm
+
+# ---- Style (DeepMind-ish minimal aesthetic) --------------------------
+DM_COLORS = {
+    "off": "red",       # offence in red
+    "def": "blue",      # defence in blue
+    "star": "#FFC107",  # amber for RB/QB highlight
+}
+plt.rcParams.update({
+    "figure.dpi": 140,
+    "savefig.dpi": 140,
+    "font.size": 11,
+    "axes.facecolor": "#FFFFFF",
+    "axes.edgecolor": "#E0E0E0",
+    "axes.grid": True,
+    "grid.color": "#EAEAEA",
+    "grid.linewidth": 0.8,
+    "grid.linestyle": "-",
+})
+
 # ---- Local modules ----------------------------------------------------
 from game_jax import default_football_spec, FootballGame
 from player_jax import CAMSInformed, BR
@@ -34,7 +55,7 @@ from solver_jax import DSGDASolver
 # =========================================================
 SEED        = 1
 BATCH_SIZE  = 1
-EPOCHS      = 1000_000
+EPOCHS      = 100_000
 VIS_EVERY   = 5000
 
 LOG_ROOT    = "Max/runs"   # run folders like PyTorch version
@@ -44,7 +65,7 @@ N_SUBSTEPS  = 4
 N_PLAYERS   = 11
 
 # Debug / verbosity
-PRINT_EVERY = 10    # iteration print cadence (stdout)
+PRINT_EVERY = 100    # iteration print cadence (stdout)
 SHOW_DEBUG  = False # extra shape/NaN checks (kept minimal here)
 
 # Player/solver hyperparams (parity with PyTorch)
@@ -124,7 +145,11 @@ def visualize_most_likely(
     fps: int = 6,
 ):
     """
-    CPU-only rendering of one rollout per hidden type i★. Returns a list of (html, ani).
+    CPU-only rendering of one rollout per hidden type i★.
+    • Type 0 (RB push): highlight RB.
+    • Type 1 (QB throw): highlight QB.
+    • Draw semi-transparent trajectories for all players.
+    Returns a list of (html, ani).
     """
     outs = []
 
@@ -143,16 +168,16 @@ def visualize_most_likely(
         times    = [0.0]
 
         for k in range(game.K):
-            out = p1_model.apply({"params": p1_params}, obs, k)     # {"A_logits": (1,I,I), "μ": (1,I,d)}
-            A = jax.nn.softmax(out["A_logits"][0], axis=-1)  # (I,I)
+            out = p1_model.apply({"params": p1_params}, obs, k)
+            A = jax.nn.softmax(out["A_logits"][0], axis=-1)
             row = A[i_star]
             j_k = int(jnp.argmax(row))
 
-            mu_tbl = out["μ"][0]                        # (I,d)
-            u1 = mu_tbl[j_k][None, :]                   # (1,d)
-            u2 = p2_model.apply({"params": p2_params}, obs, k)      # (1,d)
+            mu_tbl = out["μ"][0]
+            u1 = mu_tbl[j_k][None, :]
+            u2 = p2_model.apply({"params": p2_params}, obs, k)
 
-            state, p_tackle_now = game.step(state, u1, u2)
+            state, _ = game.step(state, u1, u2)
             state = type(state)(x=state.x, t=state.t,
                                 p=game._bayes_update(state.p, A[None, ...], jnp.array([j_k], dtype=jnp.int32)),
                                 i_star=state.i_star, w_last=state.w_last)
@@ -164,48 +189,74 @@ def visualize_most_likely(
             p_traj.append(float(state.p[0, 0]))
             times.append((k + 1) * game.dt)
 
-        # ---- build HTML/animation (top: players; bottom: belief) ----
+        # numpy stacks for animation
+        import numpy as np
+        off_np = np.stack([np.array(t) for t in traj_off], axis=0)  # (T+1, N, 2)
+        def_np = np.stack([np.array(t) for t in traj_def], axis=0)
+        T_frames = off_np.shape[0]
+
+        # Choose which player to highlight per type
+        star_idx = game.BALL_IDX if i_star == 0 else getattr(game, "QB_IDX", game.BALL_IDX)
+
+        # ---- build figure ----
         fig, (ax_top, ax_bot) = plt.subplots(
-            2, 1, figsize=(6, 8),
-            gridspec_kw={"height_ratios": [4, 1]}
+            2, 1, figsize=(6, 8), gridspec_kw={"height_ratios": [4, 1]}
         )
+        for side in ("top", "right"):
+            ax_top.spines[side].set_visible(False)
+            ax_bot.spines[side].set_visible(False)
         ax_top.set_xlim(-game.BOX_POS - .2, game.BOX_POS + .2)
         ax_top.set_ylim(-game.BOX_POS - .2, game.BOX_POS + .2)
         ax_top.set_aspect("equal")
         ax_top.set_title(f"Most-likely path – type {i_star}")
-        scat_off = ax_top.scatter([], [], s=70, c="red")
-        scat_def = ax_top.scatter([], [], s=70, c="blue")
-        rb_star  = ax_top.scatter([], [], s=140, marker="*", c="gold", edgecolors="black", lw=.6)
 
+        # Static receivers/ball carrier highlight color
+        scat_off = ax_top.scatter([], [], s=70, c=DM_COLORS["off"], edgecolors="black", linewidths=0.5)
+        scat_def = ax_top.scatter([], [], s=70, c=DM_COLORS["def"], edgecolors="black", linewidths=0.5)
+        star_sc  = ax_top.scatter([], [], s=140, marker="*", c=DM_COLORS["star"], edgecolors="#111111", lw=.6)
+
+        # Trajectory lines (semi-transparent trails)
+        off_trails = [ax_top.plot([], [], lw=1.5, alpha=0.35, color=DM_COLORS["off"], solid_capstyle="round")[0]
+                      for _ in range(game.N)]
+        def_trails = [ax_top.plot([], [], lw=1.5, alpha=0.35, color=DM_COLORS["def"], solid_capstyle="round")[0]
+                      for _ in range(game.N)]
+
+        # Belief subplot
         ax_bot.set_xlim(0, game.T)
         ax_bot.set_ylim(-0.05, 1.05)
         ax_bot.set_xlabel("time (s)")
-        ax_bot.set_ylabel(f"belief p[{0}]")  # plot p[type-0] like before
-        ax_bot.plot(times, p_traj, color="black")
-
-        T_frames = len(times)
-        import numpy as np
-        off_np = np.stack([np.array(t) for t in traj_off], axis=0)  # (T+1, N, 2)
-        def_np = np.stack([np.array(t) for t in traj_def], axis=0)
+        ax_bot.set_ylabel(f"belief p[0]")
+        ax_bot.plot(times, p_traj, color="#222222")
 
         def init():
             empty = np.empty((0, 2))
             scat_off.set_offsets(empty)
             scat_def.set_offsets(empty)
-            rb_star.set_offsets(empty)
-            return scat_off, scat_def, rb_star
+            star_sc.set_offsets(empty)
+            for ln in off_trails + def_trails:
+                ln.set_data([], [])
+            return (scat_off, scat_def, star_sc, *off_trails, *def_trails)
 
         def update(frame):
+            # points
             scat_off.set_offsets(off_np[frame])
             scat_def.set_offsets(def_np[frame])
-            rb_star.set_offsets(off_np[frame, game.BALL_IDX])
-            return scat_off, scat_def, rb_star
+            star_sc.set_offsets(off_np[frame, star_idx])
+            # trails up to current frame
+            xs_off = off_np[:frame+1, :, 0]
+            ys_off = off_np[:frame+1, :, 1]
+            xs_def = def_np[:frame+1, :, 0]
+            ys_def = def_np[:frame+1, :, 1]
+            for i in range(game.N):
+                off_trails[i].set_data(xs_off[:, i], ys_off[:, i])
+                def_trails[i].set_data(xs_def[:, i], ys_def[:, i])
+            return (scat_off, scat_def, star_sc, *off_trails, *def_trails)
 
         ani = animation.FuncAnimation(
             fig, update, frames=T_frames, init_func=init,
-            blit=True, interval=1000 / fps
+            blit=True, interval=1000 / fps, repeat=False
         )
-        plt.close(fig)
+        # NOTE: we intentionally do not close the figure here to avoid single-frame exports.
 
         # For notebook display compatibility (optional)
         try:
@@ -217,6 +268,49 @@ def visualize_most_likely(
         outs.append((html, ani))
 
     return outs
+
+
+# =========================================================
+# Visual design smoketest (random walk trajectories)
+# =========================================================
+def save_visual_style_smoketest(out_dir: str, *, N: int = 11, T: int = 30, box: float = 1.6, fps: int = 8):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    import numpy as np
+    rng = np.random.default_rng(0)
+    # random walks (bounded)
+    pos_off = np.zeros((T, N, 2), dtype=np.float32)
+    pos_def = np.zeros((T, N, 2), dtype=np.float32)
+    pos_off[0] = rng.uniform(-box*0.9, -box*0.4, size=(N, 2))
+    pos_def[0] = rng.uniform(box*0.2, box*0.9, size=(N, 2))
+    for t in range(1, T):
+        pos_off[t] = np.clip(pos_off[t-1] + 0.08 * rng.normal(size=(N, 2)), -box, box)
+        pos_def[t] = np.clip(pos_def[t-1] + 0.08 * rng.normal(size=(N, 2)), -box, box)
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.set_xlim(-box-0.2, box+0.2); ax.set_ylim(-box-0.2, box+0.2); ax.set_aspect("equal")
+    scat_off = ax.scatter([], [], s=70, c=DM_COLORS["off"], edgecolors="black", linewidths=0.5)
+    scat_def = ax.scatter([], [], s=70, c=DM_COLORS["def"], edgecolors="black", linewidths=0.5)
+    trails_off = [ax.plot([], [], lw=1.5, alpha=0.35, color=DM_COLORS["off"])[0] for _ in range(N)]
+    trails_def = [ax.plot([], [], lw=1.5, alpha=0.35, color=DM_COLORS["def"])[0] for _ in range(N)]
+
+    def init():
+        scat_off.set_offsets(np.empty((0,2))); scat_def.set_offsets(np.empty((0,2)))
+        for ln in trails_off + trails_def: ln.set_data([], [])
+        return (scat_off, scat_def, *trails_off, *trails_def)
+
+    def update(f):
+        scat_off.set_offsets(pos_off[f]); scat_def.set_offsets(pos_def[f])
+        for i in range(N):
+            trails_off[i].set_data(pos_off[:f+1, i, 0], pos_off[:f+1, i, 1])
+            trails_def[i].set_data(pos_def[:f+1, i, 0], pos_def[:f+1, i, 1])
+        return (scat_off, scat_def, *trails_off, *trails_def)
+
+    ani = animation.FuncAnimation(fig, update, frames=T, init_func=init, blit=True, interval=1000/fps)
+    out_path = out_dir / "visual_style_smoketest.gif"
+    ani.save(out_path, writer="pillow", fps=fps)
+    plt.close(fig)
+    return str(out_path)
 
 
 # =========================================================
@@ -288,8 +382,15 @@ def main():
     print(f"[run] dir: {solver.run_dir}")
     print(f"[cfg] I={game.I}  K={game.K}  N={game.N}  d={game.ACTION_DIM}  S={solver.S_paths}")
 
+    # quick one-off style smoketest (can be commented out later)
+    try:
+        test_gif = save_visual_style_smoketest(solver.anim_dir)
+        print(f"[viz-test] wrote {test_gif}")
+    except Exception as _e:
+        pass
+
     # ----- training loop -----
-    for epoch in range(EPOCHS):
+    for epoch in tqdm(range(EPOCHS)):  # add tqdm for progress bar
         stats = solver.step()
 
         if (epoch % PRINT_EVERY) == 0:

@@ -66,6 +66,7 @@ def default_football_spec(
         FREE_K=20.0,       # k_free: sharpness of freeness sigmoid
         FREE_TEMP=0.15,    # T_free: softmax temperature over runners
         FREE_ALPHA=0.4,    # α_free: how much freeness lifts runner score
+        QB_MERGE_PENALTY=0.5,
     )
 
     if N == 11:
@@ -134,6 +135,7 @@ def default_football_spec(
         spec["OFF_POS"] = off_pos
         spec["DEF_POS"] = def_pos
         spec["RB_INDEX"] = 10
+        spec["QB_INDEX"] = 8
         spec["PLAY_ROLES"] = {
             "offence": ["LT","LG","C","RG","RT","TE","WR-L","WR-R","QB","FB","RB"],
             "defence": ["LDE","LDT","RDT","RDE","SLB","MLB","WLB","CB-L","CB-R","FS","SS"],
@@ -201,6 +203,8 @@ class FootballGame:
             self.N = int(self.OFF_POS.shape[0])
 
         self.BALL_IDX = int(spec.get("RB_INDEX", self.N // 2))
+        self.QB_IDX = int(spec.get("QB_INDEX", max(0, min(self.N - 1, self.BALL_IDX - 2))))
+        self.qb_merge_penalty = float(spec.get("QB_MERGE_PENALTY", 0.5))
 
         # Dimensions
         self.ACTION_DIM = 2 * self.N
@@ -428,7 +432,10 @@ class FootballGame:
         # Smooth max over non-RB players
         T = self.free_temp
         x_free = T * jax.nn.logsumexp(x_eff_masked / T, axis=1)  # (B,)
-        L_free = -x_free                                         # (B,)
+        # Penalise QB engagement with defenders (encourage clean pocket / throw)
+        w_qb = w[:, self.QB_IDX, :]                              # (B,Ndef)
+        p_merge_qb = 1.0 - jnp.prod(1.0 - w_qb, axis=1)          # (B,)
+        L_free = -x_free + self.qb_merge_penalty * p_merge_qb     # (B,)
 
         # Select payoff by type: i★=0 → RB, i★=1 → Free WR
         return jnp.where(state.i_star == 0, L_rb, L_free)
