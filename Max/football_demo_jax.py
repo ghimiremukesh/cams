@@ -47,7 +47,7 @@ plt.rcParams.update({
 # ---- Local modules ----------------------------------------------------
 from game_jax import default_football_spec, FootballGame
 from player_jax import CAMSInformed, BR
-from solver_jax import DSGDASolver
+from solver_jax_eff_test import DSGDASolver
 
 
 # =========================================================
@@ -56,11 +56,11 @@ from solver_jax import DSGDASolver
 SEED        = 1
 BATCH_SIZE  = 1
 EPOCHS      = 100_000
-VIS_EVERY   = 5000
+VIS_EVERY   = 2500
 
 LOG_ROOT    = "Max/runs"   # run folders like PyTorch version
 HORIZON     = 1.5
-DT          = 0.5
+DT          = 0.125
 N_SUBSTEPS  = 4
 N_PLAYERS   = 11
 
@@ -76,8 +76,8 @@ PLAYER_SPEC = {
     "ent_thr_belief": 1e-2, # kept for parity; unused (no pruning)
 }
 SOLVER_SPEC = {
-    "lr_p1": 3e-2,
-    "lr_p2": 1e-1,
+    "lr_p1": 3e-3,
+    "lr_p2": 1e-2,
     "momentum": 0.6,
     "C2_p1": 10.0,
     "C2_p2": 10.0,
@@ -228,7 +228,7 @@ def visualize_most_likely(
         ax_bot.set_ylabel(f"belief p[0]")
         ax_bot.plot(times, p_traj, color="#222222")
 
-        def init():
+        def init(off_np=off_np, def_np=def_np, scat_off=scat_off, scat_def=scat_def, star_sc=star_sc, off_trails=off_trails, def_trails=def_trails):
             empty = np.empty((0, 2))
             scat_off.set_offsets(empty)
             scat_def.set_offsets(empty)
@@ -237,7 +237,7 @@ def visualize_most_likely(
                 ln.set_data([], [])
             return (scat_off, scat_def, star_sc, *off_trails, *def_trails)
 
-        def update(frame):
+        def update(frame, off_np=off_np, def_np=def_np, star_idx=star_idx, scat_off=scat_off, scat_def=scat_def, star_sc=star_sc, off_trails=off_trails, def_trails=def_trails):
             # points
             scat_off.set_offsets(off_np[frame])
             scat_def.set_offsets(def_np[frame])
@@ -404,7 +404,7 @@ def main():
                 f"wall={stats['wall_ms']:.1f}ms"
             )
 
-        if (epoch % VIS_EVERY) == 0:
+        if (epoch % VIS_EVERY) == 0 or (epoch == EPOCHS-1):  # also save last checkpoint + anims
             # 1) save checkpoint BEFORE viz (parity with PyTorch)
             ckpt_path = solver.save_checkpoint(epoch)
             print(f"[ckpt] saved {ckpt_path}")
