@@ -55,12 +55,12 @@ from solver_jax_eff_test import DSGDASolver
 # =========================================================
 SEED        = 1
 BATCH_SIZE  = 1
-EPOCHS      = 100_000
+EPOCHS      = 25_000
 VIS_EVERY   = 2500
 
 LOG_ROOT    = "Max/runs"   # run folders like PyTorch version
 HORIZON     = 1.5
-DT          = 0.125
+DT          = 0.5
 N_SUBSTEPS  = 4
 N_PLAYERS   = 11
 
@@ -318,25 +318,63 @@ def save_visual_style_smoketest(out_dir: str, *, N: int = 11, T: int = 30, box: 
 # =========================================================
 def plot_run_jsonl(log_path: str, save_png: str | None = None):
     import pandas as pd
+    import json
+    import matplotlib.pyplot as plt
+
     with open(log_path) as fh:
         records = [json.loads(line) for line in fh]
     if not records:
         return
     df = pd.DataFrame(records)
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+
+    # Make sure 'iter' column exists and is suitable for x-axis
+    if "iter" not in df.columns:
+        print("Log file does not contain an 'iter' column.")
+        return
+        
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10)) # Increased size for better readability
     ax = axes.ravel()
-    ax[0].plot(df["iter"], df["L"]);  ax[0].set_title("Loss L")
-    ax[1].plot(df["iter"], df["g_p1"], label="‖g₁‖")
-    ax[1].plot(df["iter"], df["g_p2"], label="‖g₂‖")
-    ax[1].legend();  ax[1].set_title("Gradient norms")
-    ax[2].plot(df["iter"], df["n_seq"]); ax[2].set_title("# active sequences S")
+    
+    # --- Unchanged Plots ---
+    # Assuming 'L', 'g_p1', 'g_p2', 'n_seq' columns exist
+    if "L" in df.columns:
+      ax[0].plot(df["iter"], df["L"])
+      ax[0].set_title("Loss L")
+
+    if "g_p1" in df.columns and "g_p2" in df.columns:
+      ax[1].plot(df["iter"], df["g_p1"], label="‖g₁‖")
+      ax[1].plot(df["iter"], df["g_p2"], label="‖g₂‖")
+      ax[1].legend()
+      ax[1].set_title("Gradient norms")
+    
+    if "n_seq" in df.columns:
+      ax[2].plot(df["iter"], df["n_seq"])
+      ax[2].set_title("# active sequences S")
+
+    # --- Fixed Time Plot ---
     phases = ["t_prune", "t_loss", "t_backward", "t_momentum", "t_step"]
-    bottom = None
-    for ph in phases:
-        series = df[ph] if ph in df else 0.0
-        ax[3].bar(df["iter"], series, bottom=bottom, label=ph.replace("t_",""))
-        bottom = series if bottom is None else bottom + series
-    ax[3].legend(); ax[3].set_title("Per-iteration time (ms)")
+    
+    # Filter for phases that actually exist in the DataFrame
+    existing_phases = [p for p in phases if p in df.columns]
+    
+    if existing_phases:
+        # Prepare data for the stackplot
+        y_data = [df[ph] for ph in existing_phases]
+        labels = [ph.replace("t_", "") for ph in existing_phases]
+
+        # Use a stacked area plot instead of a bar plot
+        ax[3].stackplot(df["iter"], y_data, labels=labels)
+        
+        # Calculate a reasonable y-limit to ignore initial spikes
+        total_time = df[existing_phases].sum(axis=1)
+        if not total_time.empty:
+            # Clip the y-axis at 110% of the 98th percentile for a clearer view
+            upper_limit = total_time.quantile(0.98) * 1.1
+            ax[3].set_ylim(0, upper_limit)
+            
+    ax[3].legend()
+    ax[3].set_title("Per-iteration time (ms)")
+    
     plt.tight_layout()
     if save_png:
         plt.savefig(save_png, dpi=150)
