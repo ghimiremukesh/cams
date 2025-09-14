@@ -3,4 +3,5 @@ __pycache__/
 venv/
 animations/
 runs/
-train*.*
+out_sim/
+multi_gpu_test/
