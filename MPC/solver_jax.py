@@ -1,12 +1,3 @@
-# dsgda_solver_jax.py
-# =========================================================
-# Clean DSGDA solver (JAX) for the football game.
-# - No pruning, no tree visualisation.
-# - Exact expectation over all public-message sequences (I^K).
-# - Separate optimisers for P1 (descent) and P2 (ascent).
-# - JSONL logging + periodic checkpoints compatible with your run layout.
-# =========================================================
-
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple, List
@@ -20,6 +11,7 @@ from flax import serialization as flax_serial
 
 from game_jax import FootballGame, FootballState
 from player_jax import CAMSInformed, BR
+from functools import partial
 
 
 # =========================================================
@@ -31,11 +23,11 @@ DEBUG_INFO    = False    # print shapes and sanity stats
 
 # Pruning controls
 PRUNE = True
-PRUNE_EVERY = 10
-PRUNE_WARMUP = 100
-EPS_FRACTION = 1e-3      # epsilon = EPS_FRACTION * (1/I)^K
+PRUNE_EVERY = 100
+PRUNE_WARMUP = 1000
+EPS_FRACTION = 1e-4 #1e-3     # epsilon = EPS_FRACTION * (1/I)^K
 DELTA_ROW_FRACTION = 1e-2  # delta = DELTA_ROW_FRACTION * (1/I)^K
-SIZE_RATIO_GATE = 0.6      # accept new path set only if S_next <= SIZE_RATIO_GATE * S_curr
+SIZE_RATIO_GATE = 0.8 #0.6      # accept new path set only if S_next <= SIZE_RATIO_GATE * S_curr
 
 
 # =========================================================
@@ -52,12 +44,10 @@ def _all_paths(I: int, K: int) -> jnp.ndarray:
 
 
 def _global_grad_norm(grads) -> float:
-    sq = 0.0
-    for g in jax.tree_util.tree_leaves(grads):
-        sq = sq + jnp.sum(jnp.asarray(g, dtype=F32) ** 2)
-    return float(jnp.sqrt(sq))
+    """Computes the total L2 norm of a pytree of gradients."""
+    sq_norms = [jnp.sum(jnp.asarray(g, dtype=F32) ** 2) for g in jax.tree.leaves(grads)]
+    return float(jnp.sqrt(jnp.sum(jnp.array(sq_norms))))
 
-# ---- add near top of file ----
 def _to_jsonable(obj):
     """Convert nested structures with jnp/np arrays to plain JSON types."""
     import numpy as _np
@@ -79,6 +69,86 @@ def _to_jsonable(obj):
         return _np.asarray(obj).tolist()
     # Fallback: string repr
     return str(obj)
+
+# =========================================================
+# OPTIMIZED PRUNING HELPERS
+# =========================================================
+@jax.jit
+def _find_jumped_nodes(ids_new, rows_new, ids_old, rows_old, delta_row):
+    """
+    JIT-compiled function to efficiently find nodes where the q-row has changed
+    significantly between iterations.
+    Returns a fixed-size array padded with -1 to be JIT-compatible.
+    """
+    # Use a fill_value for jnp.unique that won't be a valid node ID.
+    fill_val = -1
+
+    # Group by node using the index of first appearance as the representative.
+    uniq_new, idx_new = jnp.unique(ids_new, return_index=True, size=ids_new.shape[0], fill_value=fill_val)
+    rep_rows_new = rows_new[idx_new]
+
+    uniq_old, idx_old = jnp.unique(ids_old, return_index=True, size=ids_old.shape[0], fill_value=fill_val)
+    rep_rows_old = rows_old[idx_old]
+
+    # Find where each old ID would be inserted into the new ID list.
+    pos_in_new = jnp.searchsorted(uniq_new, uniq_old)
+
+    # --- Create a mask for valid comparisons without dynamic-shaped indexing ---
+    is_valid_old_id = (uniq_old != fill_val)
+    is_in_bounds = (pos_in_new < uniq_new.shape[0])
+
+    # Use a safe index (e.g., 0) for out-of-bounds positions to prevent JAX errors.
+    # The result for these positions will be discarded by the `is_in_bounds` mask.
+    safe_pos_in_new = jnp.where(is_in_bounds, pos_in_new, 0)
+    matches_found = (uniq_new[safe_pos_in_new] == uniq_old)
+    valid_comparison_mask = is_valid_old_id & is_in_bounds & matches_found
+
+    # --- Perform comparison on all rows and use the mask later ---
+    # Gather the corresponding 'new' rows. This will have garbage for invalid positions,
+    # but the mask will handle it.
+    gathered_rows_new = rep_rows_new[safe_pos_in_new]
+
+    # Calculate L1 difference for all rows.
+    diff = jnp.sum(jnp.abs(gathered_rows_new - rep_rows_old), axis=1)
+
+    # A node has "jumped" if it's a valid comparison AND its diff is > delta_row.
+    jump_mask = (diff > delta_row) & valid_comparison_mask
+
+    # Return the old IDs for jumped nodes, padded with the fill value.
+    # This returns a fixed-size array, which is JIT-compatible.
+    return jnp.where(jump_mask, uniq_old, fill_val)
+
+# The `depth`, `I`, and `K` arguments are marked as static because they
+# determine the control flow (`if L > 0`) and shapes of arrays inside the function.
+@partial(jax.jit, static_argnames=['depth', 'I', 'K'])
+def _expand_subgrid_jax(prefix_idx: jnp.ndarray, depth: int, I: int, K: int) -> jnp.ndarray:
+    """
+    JIT-compiled function to generate all sequences sharing a given prefix.
+    Replaces the original Python-loop based implementation.
+    """
+    L = K - depth
+    prefix_vec = jnp.array([], dtype=jnp.int32)
+    # Decode prefix from its base-I integer representation using modular arithmetic
+    if L > 0:
+        powers = I ** jnp.arange(L - 1, -1, -1, dtype=jnp.int32)
+        prefix_vec = (prefix_idx.astype(jnp.int32) // powers) % I
+
+    # Build suffix cartesian grid of shape (I**depth, depth)
+    if depth > 0:
+        grids = [jnp.arange(I, dtype=jnp.int32) for _ in range(depth)]
+        mesh = jnp.stack(jnp.meshgrid(*grids, indexing='ij'), axis=-1).reshape(-1, depth)
+    else:
+        mesh = jnp.zeros((1, 0), dtype=jnp.int32)
+
+    S_mesh = mesh.shape[0]
+    # Combine prefix and suffix to form the full sequences
+    seq = jnp.zeros((S_mesh, K), dtype=jnp.int32)
+    if L > 0:
+        seq = seq.at[:, :L].set(jnp.broadcast_to(prefix_vec, (S_mesh, L)))
+    if depth > 0:
+        seq = seq.at[:, L:].set(mesh)
+    return seq
+
 
 # =========================================================
 # Loss factory
@@ -241,11 +311,8 @@ class DSGDASolver:
         self.opt_state_p1 = self.opt_p1.init(self.p1_params)
         self.opt_state_p2 = self.opt_p2.init(self.p2_params)
 
-        # JIT loss
-        self._loss = make_loss_fn(self.game, self.p1_model, self.p2_model, self.paths)
-
-        # Value+grads function
-        self._vg = jax.jit(jax.value_and_grad(self._loss, argnums=(0, 1), has_aux=True))
+        # JIT loss and value+grads functions
+        self._rebuild_jitted_fns()
 
         # ---- pruning state ----
         self.prune = PRUNE
@@ -256,47 +323,14 @@ class DSGDASolver:
         self.delta_row = DELTA_ROW_FRACTION * a_min
         self.size_ratio_gate = SIZE_RATIO_GATE
 
-        self.prob_prev = None   # np.ndarray (S,)
-        self.row_prev_ids: List = [None for _ in range(self.K)]   # each np.ndarray (S,) of node ids
-        self.row_prev_rows: List = [None for _ in range(self.K)]  # each np.ndarray (S,I) q-rows
+        self.prob_prev = None
+        self.row_prev_ids: List = [None for _ in range(self.K)]
+        self.row_prev_rows: List = [None for _ in range(self.K)]
 
-    # -----------------------------------------------------
-    def _expand_subgrid(self, prefix_idx: int, depth: int) -> jnp.ndarray:
-        """Return (I**depth, K) sequences sharing the given base-I prefix.
-        The prefix covers the first L = (K - depth) columns; the suffix covers the
-        remaining `depth` columns. `prefix_idx` is the base-I encoding of that prefix.
-        """
-        I, K = self.I, self.K
-        L = K - int(depth)
-        # decode prefix digits from integer in base-I (without leading zeros)
-        digs = []
-        tmp = int(prefix_idx)
-        while tmp > 0:
-            digs.append(tmp % I)
-            tmp //= I
-        digs = digs[::-1]
-        # pad with leading zeros to length L
-        if L > 0:
-            if len(digs) < L:
-                digs = [0] * (L - len(digs)) + digs
-            prefix_vec = jnp.asarray(digs[:L], dtype=jnp.int32)
-        else:
-            prefix_vec = jnp.zeros((0,), dtype=jnp.int32)
-
-        # build suffix cartesian grid of shape (I**depth, depth)
-        if depth > 0:
-            grids = [jnp.arange(I, dtype=jnp.int32) for _ in range(depth)]
-            mesh = jnp.stack(jnp.meshgrid(*grids, indexing='ij'), axis=-1).reshape(-1, depth)
-        else:
-            mesh = jnp.zeros((1, 0), dtype=jnp.int32)  # one row, zero columns
-
-        S = mesh.shape[0]
-        seq = jnp.zeros((S, K), dtype=jnp.int32)
-        if L > 0:
-            seq = seq.at[:, :L].set(jnp.broadcast_to(prefix_vec, (S, L)))
-        if depth > 0:
-            seq = seq.at[:, L:].set(mesh)  # fill the last `depth` columns
-        return seq
+    def _rebuild_jitted_fns(self):
+        """Rebuilds and JIT-compiles the loss and gradient functions."""
+        self._loss = make_loss_fn(self.game, self.p1_model, self.p2_model, self.paths)
+        self._vg = jax.jit(jax.value_and_grad(self._loss, argnums=(0, 1), has_aux=True))
 
     # -----------------------------------------------------
     def step(self) -> Dict[str, float]:
@@ -317,8 +351,9 @@ class DSGDASolver:
         updates_p1, self.opt_state_p1 = self.opt_p1.update(gr_p1, self.opt_state_p1, self.p1_params)
         self.p1_params = optax.apply_updates(self.p1_params, updates_p1)
 
+        # Note: Use jax.tree.map for modern API
         updates_p2, self.opt_state_p2 = self.opt_p2.update(
-            jax.tree_map(lambda g: -g, gr_p2), self.opt_state_p2, self.p2_params
+            jax.tree.map(lambda g: -g, gr_p2), self.opt_state_p2, self.p2_params
         )
         self.p2_params = optax.apply_updates(self.p2_params, updates_p2)
 
@@ -332,82 +367,64 @@ class DSGDASolver:
             should_check = (iter_idx >= self.prune_warmup) and ((iter_idx - self.prune_warmup) % self.prune_every == 0)
             if should_check:
                 tpr0 = time.perf_counter()
-                # aux caches are jax arrays; convert to numpy for grouping
-                prob_curr = jnp.asarray(aux["prob_seq"]).astype(float)
-                row_ids_seq = [jnp.asarray(a).astype(int) for a in aux["row_ids_seq"]]
-                row_q_seq   = [jnp.asarray(a).astype(float) for a in aux["row_q_seq"]]
+                prob_curr = aux["prob_seq"]
+                row_ids_seq = aux["row_ids_seq"]
+                row_q_seq = aux["row_q_seq"]
 
-                # 1) keep paths with prob > eps (prefer current probs; fallback to prev only if shapes match)
-                if (self.prob_prev is not None) and (
-                    int(jnp.asarray(self.prob_prev).shape[0]) == int(self.paths.shape[0])
-                ):
-                    keep_mask = (jnp.asarray(self.prob_prev) > self.eps_prob)
+                # 1) Keep paths with probability > epsilon
+                if (self.prob_prev is not None) and (self.prob_prev.shape[0] == self.paths.shape[0]):
+                    keep_mask = (self.prob_prev > self.eps_prob)
                 else:
                     keep_mask = (prob_curr > self.eps_prob)
-                paths_keep = jnp.asarray(self.paths)[keep_mask]
+                paths_keep = self.paths[keep_mask]
 
-                # 2) restore subtrees where node q-row changed a lot
+                # 2) Restore subtrees where node q-row changed significantly
                 restores = []
-                for k in range(self.K - 1):  # no restore at leaves
-                    ids_new  = jnp.asarray(row_ids_seq[k])  # (S,)
-                    rows_new = jnp.asarray(row_q_seq[k])    # (S,I)
-                    ids_old  = self.row_prev_ids[k]
-                    rows_old = self.row_prev_rows[k]
-                    if ids_old is None or rows_old is None:
+                for k in range(self.K - 1):  # No restore at leaves
+                    if self.row_prev_ids[k] is None or self.row_prev_rows[k] is None:
                         continue
-                    # group by node using first occurrence as representative
-                    # new
-                    order_new = jnp.argsort(ids_new)
-                    ids_new_sorted = ids_new[order_new]
-                    is_new = jnp.concatenate([jnp.array([True]), ids_new_sorted[1:] != ids_new_sorted[:-1]])
-                    rep_pos_new = jnp.where(is_new, size=is_new.shape[0])[0]
-                    uniq_new = ids_new_sorted[is_new]
-                    rep_rows_new = rows_new[order_new][is_new]
-                    # old
-                    ids_old_np = jnp.asarray(ids_old)
-                    rows_old_np = jnp.asarray(rows_old)
-                    order_old = jnp.argsort(ids_old_np)
-                    ids_old_sorted = ids_old_np[order_old]
-                    is_old = jnp.concatenate([jnp.array([True]), ids_old_sorted[1:] != ids_old_sorted[:-1]])
-                    uniq_old = ids_old_sorted[is_old]
-                    rep_rows_old = rows_old_np[order_old][is_old]
-                    # align old→new by searchsorted
-                    pos_in_new = jnp.searchsorted(uniq_new, uniq_old)
-                    valid = (pos_in_new >= 0) & (pos_in_new < uniq_new.shape[0]) & (uniq_new[pos_in_new] == uniq_old)
-                    if bool(jnp.any(valid)):
-                        diff = jnp.sum(jnp.abs(rep_rows_new[pos_in_new[valid]] - rep_rows_old[valid]), axis=1)
-                        jumped_ids = uniq_old[valid][diff > self.delta_row]
-                        if jumped_ids.size > 0:
-                            depth = self.K - (k + 1)
-                            for pid in list(map(int, jnp.asarray(jumped_ids).tolist())):
-                                restores.append(self._expand_subgrid(pid, depth))
-                if len(restores) > 0:
+                    
+                    # Call JIT-compiled helper to find changed nodes.
+                    # It returns a fixed-size array padded with -1.
+                    jumped_ids_padded = _find_jumped_nodes(
+                        row_ids_seq[k], row_q_seq[k],
+                        self.row_prev_ids[k], self.row_prev_rows[k],
+                        self.delta_row
+                    )
+                    # Filter out the padding on the host before looping.
+                    jumped_ids = jumped_ids_padded[jumped_ids_padded != -1]
+
+                    if jumped_ids.size > 0:
+                        depth = self.K - (k + 1)
+                        for pid in jumped_ids:
+                            # Pass static arguments I and K to the jitted function
+                            restores.append(_expand_subgrid_jax(pid, depth, self.I, self.K))
+
+                if restores:
                     paths_restore = jnp.unique(jnp.concatenate(restores, axis=0), axis=0)
                     paths_next = jnp.unique(jnp.concatenate([paths_keep, paths_restore], axis=0), axis=0)
                 else:
                     paths_next = jnp.unique(paths_keep, axis=0)
 
-                S_curr = int(self.paths.shape[0])
-                S_next = int(paths_next.shape[0])
-                accept = (S_next <= max(1, int(self.size_ratio_gate * S_curr))) and (S_next < S_curr)
+                S_curr = self.paths.shape[0]
+                S_next = paths_next.shape[0]
+                accept = (S_next >= 2) and (S_next <= max(1, int(self.size_ratio_gate * S_curr))) and (S_next < S_curr)
 
                 if accept:
-                    # swap in new paths and rebuild jitted fns
-                    self.paths = jnp.asarray(paths_next, dtype=jnp.int32)
-                    self.S_paths = int(self.paths.shape[0])
-                    self._loss = make_loss_fn(self.game, self.p1_model, self.p2_model, self.paths)
-                    self._vg = jax.jit(jax.value_and_grad(self._loss, argnums=(0, 1), has_aux=True))
-                    # reset caches; recompute on next iteration to avoid shape mismatch
+                    self.paths = paths_next
+                    self.S_paths = self.paths.shape[0]
+                    self._rebuild_jitted_fns()
+                    # Reset caches; they will be recomputed on the next step with matching shapes
                     self.prob_prev = None
                     for k2 in range(self.K):
-                        self.row_prev_ids[k2]  = None
+                        self.row_prev_ids[k2] = None
                         self.row_prev_rows[k2] = None
-                if not accept:
-                    # rotate caches for next decision (shapes unchanged)
-                    self.prob_prev = jnp.asarray(prob_curr)
-                    for k in range(self.K):
-                        self.row_prev_ids[k]  = jnp.asarray(row_ids_seq[k])
-                        self.row_prev_rows[k] = jnp.asarray(row_q_seq[k])
+                else:
+                    # Rotate caches for the next decision (shapes are unchanged)
+                    self.prob_prev = prob_curr
+                    for k_idx in range(self.K):
+                        self.row_prev_ids[k_idx] = row_ids_seq[k_idx]
+                        self.row_prev_rows[k_idx] = row_q_seq[k_idx]
 
                 t_prune_ms = (time.perf_counter() - tpr0) * 1e3
 
@@ -417,11 +434,10 @@ class DSGDASolver:
             "g_p1"      : float(g1),
             "g_p2"      : float(g2),
             "n_seq"     : int(self.S_paths),
-            # Timing (kept keys for plot_run compatibility)
             "t_prune"    : float(t_prune_ms),
             "t_loss"     : (t1 - t0) * 1e3 if PROFILE_TIMES else 0.0,
-            "t_backward" : 0.0,                                 # fused in JAX
-            "t_momentum" : (t2 - t1) * 1e3 if PROFILE_TIMES else 0.0,  # includes param updates
+            "t_backward" : 0.0,
+            "t_momentum" : (t2 - t1) * 1e3 if PROFILE_TIMES else 0.0,
             "t_step"     : 0.0,
             "wall_ms"    : (t2 - t0) * 1e3 if PROFILE_TIMES else 0.0,
         }
@@ -442,25 +458,22 @@ class DSGDASolver:
         • ckpt_{tag}.msgpack : binary Flax-serialized pytree
         • ckpt_{tag}.meta.json : small JSON with specs/paths count/etc.
         """
-        # 1) Binary state (safe & fast for params/opt states / jax arrays)
         state_tree = {
             "iter": int(tag) if isinstance(tag, int) else tag,
             "p1_params": self.p1_params,
             "p2_params": self.p2_params,
             "opt_state_p1": self.opt_state_p1,
             "opt_state_p2": self.opt_state_p2,
-            "paths": self.paths,            # (S,K) jnp.int32
-            # Keep full training log in the JSONL file; no need to duplicate here.
+            "paths": self.paths,
         }
         ckpt_path = (self.ckpt_dir / f"ckpt_{tag}.msgpack").resolve()
         with open(ckpt_path, "wb") as fh:
             fh.write(flax_serial.to_bytes(state_tree))
 
-        # 2) Human-friendly metadata (JSON-serializable only)
         meta = {
             "iter": state_tree["iter"],
             "stamp": self.stamp,
-            "spec": _to_jsonable(self.spec),          # DSGDASpec dataclass
+            "spec": _to_jsonable(self.spec),
             "game_spec": _to_jsonable(self.game.spec),
             "S_paths": int(self.S_paths),
             "log_path": self.log_path,
