@@ -39,7 +39,7 @@ plt.rcParams.update({
 from game_jax import default_football_spec, FootballGame
 
 from player_jax import CAMSInformed, BR
-from solver_jax_eff import DSGDASolver
+from solver_jax import DSGDASolver
 
 
 # =========================================================
