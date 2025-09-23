@@ -1,12 +1,3 @@
-# football_demo_jax.py
-# =========================================================
-# Clean driver for JAX-based training of the football game.
-#  • No tree pruning, no tree visualisation.
-#  • Training in JAX; visualisation CPU-only with Matplotlib.
-#  • Unified switches at the top.
-#  • Logs JSONL and saves checkpoints like the PyTorch version.
-# =========================================================
-
 from __future__ import annotations
 import os, json, math, time, datetime
 from pathlib import Path
@@ -44,10 +35,11 @@ plt.rcParams.update({
     "grid.linestyle": "-",
 })
 
-# ---- Local modules ----------------------------------------------------
+
 from game_jax import default_football_spec, FootballGame
+
 from player_jax import CAMSInformed, BR
-from solver_jax_eff_test import DSGDASolver
+from solver_jax_eff import DSGDASolver
 
 
 # =========================================================
@@ -55,18 +47,17 @@ from solver_jax_eff_test import DSGDASolver
 # =========================================================
 SEED        = 1
 BATCH_SIZE  = 1
-EPOCHS      = 25_000
+EPOCHS      = 50_000
 VIS_EVERY   = 2500
-
-LOG_ROOT    = "Max/runs"   # run folders like PyTorch version
-HORIZON     = 1.5
-DT          = 0.5
+LOG_ROOT    = "logs/"   # run folders like PyTorch version
+HORIZON     = 2.5
+DT          = 0.25
 N_SUBSTEPS  = 4
 N_PLAYERS   = 11
 
 # Debug / verbosity
 PRINT_EVERY = 100    # iteration print cadence (stdout)
-SHOW_DEBUG  = False # extra shape/NaN checks (kept minimal here)
+SHOW_DEBUG  = False 
 
 # Player/solver hyperparams (parity with PyTorch)
 PLAYER_SPEC = {
@@ -145,20 +136,95 @@ def visualize_most_likely(
     fps: int = 6,
 ):
     """
-    CPU-only rendering of one rollout per hidden type i★.
-    • Type 0 (RB push): highlight RB.
-    • Type 1 (QB throw): highlight QB.
-    • Draw semi-transparent trajectories for all players.
-    Returns a list of (html, ani).
+    CPU-only rendering of one rollout per hidden type i★ with persistent 'blob' heat.
+
+    Change requested:
+      • Blob patches appear ONLY AFTER their time-step (i.e., a blob stamped at t_k
+        becomes visible starting at frame k+1, not during frame k).
+      • Fixed blob radius (data units), not magnitude-scaled.
     """
+    import numpy as np
+    import jax
+    import jax.numpy as jnp
+    import matplotlib.pyplot as plt
+    from matplotlib import animation
+    from matplotlib.patches import Circle
+
+    # ------------------------- Styling -------------------------
+    _rc = {
+        "font.size": 10,
+        "axes.titlesize": 12,
+        "axes.labelsize": 10,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "axes.linewidth": 0.8,
+        "figure.dpi": 120,
+    }
+    prev_rc = {k: plt.rcParams.get(k, None) for k in _rc}
+    plt.rcParams.update(_rc)
+
+    # Team colors / colormaps
+    OFF_LINE = "#c62828"      # offense red
+    DEF_LINE = "#1565c0"      # defense blue
+    OFF_CMAP = plt.cm.Reds
+    DEF_CMAP = plt.cm.Blues
+
+    # Markers / sizes (pt^2 where applicable)
+    S_OUTLINE = 160.0
+    S_POS_DOT = 28.0
+    DOT_INSIDE = 36.0
+    OUTLINE_LW = 1.6
+    TRAIL_LW = 1.6
+
+    # ---- Blob settings (in DATA units) ----
+    HEAT_ALPHA = 0.35         # per-blob opacity
+    HEAT_GAMMA = 0.70         # <1 brightens low magnitudes (for color)
+    HEAT_BASE  = 0.30         # color floor to avoid near-white
+    Z_BLOBS    = 2.0          # zorder below outlines/trails but above grid
+
+    # Fixed radius (data units). Tweak this one knob:
+    R_FIXED = 0.05            # e.g., 0.05 of field units
+
+    # Delay so blobs appear only AFTER their step
+    APPEAR_DELAY = 1          # stamp frame (t - APPEAR_DELAY)
+
+    # Helpers ---------------------------------------------------
+    def _split_state(game, x):
+        return globals()["_split_state"](game, x)
+
+    def _team_action_per_player(u: jnp.ndarray, N: int) -> np.ndarray:
+        """Return per-player L2 magnitudes (N,) from a team action vector."""
+        u = jnp.asarray(u)
+        u = jnp.squeeze(u)
+        D = int(u.shape[-1]) if u.ndim >= 1 else 0
+        if D == 2 * N:
+            arr = u.reshape(N, 2)
+        elif N > 0 and D % N == 0 and D > 0:
+            arr = u.reshape(N, D // N)
+        else:
+            mag = float(jnp.linalg.norm(u)) / max(N, 1)
+            return np.full((N,), mag, dtype=float)
+        return np.asarray(jnp.linalg.norm(arr, axis=1), dtype=float)
+
+    # Indices for highlights
+    RB_IDX = getattr(game, "RB_IDX", getattr(game, "BALL_IDX", 0))
+    QB_IDX = getattr(game, "QB_IDX", getattr(game, "BALL_IDX", 0))
+    REC_IDX = None
+    for cand in ("REC_IDX", "WR_IDX", "RECV_IDX"):
+        if hasattr(game, cand):
+            REC_IDX = getattr(game, cand)
+            break
+
     outs = []
 
     for i_star in range(game.I):
-        # Reset and set the hidden type deterministically
+        # Reset and set hidden type deterministically
         state, _ = game.reset(batch_size=1)
-        state = type(state)(x=state.x, t=state.t, p=state.p,
-                            i_star=jnp.full((1,), i_star, dtype=jnp.int32),
-                            w_last=state.w_last)
+        state = type(state)(
+            x=state.x, t=state.t, p=state.p,
+            i_star=jnp.full((1,), i_star, dtype=jnp.int32),
+            w_last=state.w_last
+        )
         obs = {"x": state.x, "p": state.p, "t": state.t}
 
         pos1, _, pos2, _ = _split_state(game, state.x)
@@ -167,20 +233,27 @@ def visualize_most_likely(
         p_traj   = [float(state.p[0, 0])]
         times    = [0.0]
 
+        off_mags_seq = [np.zeros((game.N,), dtype=float)]
+        def_mags_seq = [np.zeros((game.N,), dtype=float)]
+
+        # Rollout under most-likely row j_k for this type
         for k in range(game.K):
             out = p1_model.apply({"params": p1_params}, obs, k)
             A = jax.nn.softmax(out["A_logits"][0], axis=-1)
             row = A[i_star]
             j_k = int(jnp.argmax(row))
 
-            mu_tbl = out["μ"][0]
-            u1 = mu_tbl[j_k][None, :]
+            mu_tbl = out["μ"][0]            # [J, D_off]
+            u1 = mu_tbl[j_k][None, :]       # (1, D_off)
             u2 = p2_model.apply({"params": p2_params}, obs, k)
 
+            # Step + Bayes update
             state, _ = game.step(state, u1, u2)
-            state = type(state)(x=state.x, t=state.t,
-                                p=game._bayes_update(state.p, A[None, ...], jnp.array([j_k], dtype=jnp.int32)),
-                                i_star=state.i_star, w_last=state.w_last)
+            state = type(state)(
+                x=state.x, t=state.t,
+                p=game._bayes_update(state.p, A[None, ...], jnp.array([j_k], dtype=jnp.int32)),
+                i_star=state.i_star, w_last=state.w_last
+            )
             obs = {"x": state.x, "p": state.p, "t": state.t}
 
             pos1, _, pos2, _ = _split_state(game, state.x)
@@ -189,76 +262,219 @@ def visualize_most_likely(
             p_traj.append(float(state.p[0, 0]))
             times.append((k + 1) * game.dt)
 
-        # numpy stacks for animation
-        import numpy as np
-        off_np = np.stack([np.array(t) for t in traj_off], axis=0)  # (T+1, N, 2)
-        def_np = np.stack([np.array(t) for t in traj_def], axis=0)
+            off_mags_seq.append(_team_action_per_player(u1, game.N))
+            def_mags_seq.append(_team_action_per_player(u2, game.N))
+
+        # Stacks
+        off_np = np.stack([np.array(t) for t in traj_off], axis=0)  # (T, N, 2)
+        def_np = np.stack([np.array(t) for t in traj_def], axis=0)  # (T, N, 2)
+        off_mags_np = np.stack(off_mags_seq, axis=0)                # (T, N)
+        def_mags_np = np.stack(def_mags_seq, axis=0)                # (T, N)
         T_frames = off_np.shape[0]
+        max_off = float(np.max(off_mags_np)) if off_mags_np.size else 1.0
+        max_def = float(np.max(def_mags_np)) if def_mags_np.size else 1.0
+        max_off = max(max_off, 1e-12)
+        max_def = max(max_def, 1e-12)
 
-        # Choose which player to highlight per type
-        star_idx = game.BALL_IDX if i_star == 0 else getattr(game, "QB_IDX", game.BALL_IDX)
-
-        # ---- build figure ----
+        # Figure
         fig, (ax_top, ax_bot) = plt.subplots(
-            2, 1, figsize=(6, 8), gridspec_kw={"height_ratios": [4, 1]}
+            2, 1, figsize=(6.5, 8.2), gridspec_kw={"height_ratios": [4, 1]}
         )
         for side in ("top", "right"):
             ax_top.spines[side].set_visible(False)
             ax_bot.spines[side].set_visible(False)
-        ax_top.set_xlim(-game.BOX_POS - .2, game.BOX_POS + .2)
-        ax_top.set_ylim(-game.BOX_POS - .2, game.BOX_POS + .2)
+
+        # Axes limits
+        xmin, xmax = -game.BOX_POS - 0.2, game.BOX_POS + 0.2
+        ymin, ymax = -game.BOX_POS - 0.2, game.BOX_POS + 0.2
+        ax_top.set_xlim(xmin, xmax)
+        ax_top.set_ylim(ymin, ymax)
         ax_top.set_aspect("equal")
-        ax_top.set_title(f"Most-likely path – type {i_star}")
-
-        # Static receivers/ball carrier highlight color
-        scat_off = ax_top.scatter([], [], s=70, c=DM_COLORS["off"], edgecolors="black", linewidths=0.5)
-        scat_def = ax_top.scatter([], [], s=70, c=DM_COLORS["def"], edgecolors="black", linewidths=0.5)
-        star_sc  = ax_top.scatter([], [], s=140, marker="*", c=DM_COLORS["star"], edgecolors="#111111", lw=.6)
-
-        # Trajectory lines (semi-transparent trails)
-        off_trails = [ax_top.plot([], [], lw=1.5, alpha=0.35, color=DM_COLORS["off"], solid_capstyle="round")[0]
-                      for _ in range(game.N)]
-        def_trails = [ax_top.plot([], [], lw=1.5, alpha=0.35, color=DM_COLORS["def"], solid_capstyle="round")[0]
-                      for _ in range(game.N)]
+        ax_top.set_title(f"Most-likely path – type {i_star}", fontweight="bold")
+        ax_top.set_xlabel("x (field units)")
+        ax_top.set_ylabel("y (field units)")
 
         # Belief subplot
         ax_bot.set_xlim(0, game.T)
         ax_bot.set_ylim(-0.05, 1.05)
         ax_bot.set_xlabel("time (s)")
-        ax_bot.set_ylabel(f"belief p[0]")
-        ax_bot.plot(times, p_traj, color="#222222")
+        ax_bot.set_ylabel("belief p[type=0]")
+        ax_bot.plot(times, p_traj, color="#333333", lw=1.6)
 
-        def init(off_np=off_np, def_np=def_np, scat_off=scat_off, scat_def=scat_def, star_sc=star_sc, off_trails=off_trails, def_trails=def_trails):
-            empty = np.empty((0, 2))
-            scat_off.set_offsets(empty)
-            scat_def.set_offsets(empty)
-            star_sc.set_offsets(empty)
+        # Dotted trajectory lines
+        off_trails = [
+            ax_top.plot([], [], lw=TRAIL_LW, alpha=0.75, color=OFF_LINE,
+                        linestyle=":", solid_capstyle="round", zorder=2.6)[0]
+            for _ in range(game.N)
+        ]
+        def_trails = [
+            ax_top.plot([], [], lw=TRAIL_LW, alpha=0.75, color=DEF_LINE,
+                        linestyle=":", solid_capstyle="round", zorder=2.6)[0]
+            for _ in range(game.N)
+        ]
+
+        # Outline markers (no fill)
+        off_outline = ax_top.scatter(
+            [], [], s=S_OUTLINE, facecolors="none", edgecolors="black",
+            linewidths=OUTLINE_LW, marker="o", zorder=3.4
+        )
+        def_outline = ax_top.scatter(
+            [], [], s=S_OUTLINE, facecolors="none", edgecolors="black",
+            linewidths=OUTLINE_LW, marker="s", zorder=3.4
+        )
+
+        # Position dots (fixed size, no outline)
+        off_pos = ax_top.scatter(
+            [], [], s=S_POS_DOT, c=OFF_LINE, edgecolors="none", alpha=0.95, zorder=3.2
+        )
+        def_pos = ax_top.scatter(
+            [], [], s=S_POS_DOT, c=DEF_LINE, edgecolors="none", alpha=0.95, zorder=3.2
+        )
+
+        # Persistent blob storage (as Patches)
+        off_blob_patches = []
+        def_blob_patches = []
+
+        # Highlights
+        rb_circle = ax_top.scatter([], [], s=S_OUTLINE * 1.05, facecolors="none",
+                                   edgecolors="black", linewidths=OUTLINE_LW + 0.2, marker="o", zorder=3.8)
+        # RB cross via plot() (always visible)
+        MS_CROSS = float(np.sqrt(S_OUTLINE) * 1.25)  # points (not pt^2)
+        rb_cross, = ax_top.plot(
+            [], [], linestyle="None",
+            marker="x", markersize=MS_CROSS, markeredgewidth=2.8,
+            color="black", zorder=4.0
+        )
+        qb_circle = ax_top.scatter([], [], s=S_OUTLINE * 1.05, facecolors="none",
+                                   edgecolors="black", linewidths=OUTLINE_LW + 0.2, marker="o", zorder=3.8)
+        qb_dot    = ax_top.scatter([], [], s=DOT_INSIDE, c="black", marker="o", edgecolors="none", zorder=3.9)
+        rec_circle = ax_top.scatter([], [], s=S_OUTLINE * 1.05, facecolors="none",
+                                    edgecolors="black", linewidths=OUTLINE_LW + 0.2, marker="o", zorder=3.8)
+        rec_dot    = ax_top.scatter([], [], s=DOT_INSIDE, c="black", marker="o", edgecolors="none", zorder=3.9)
+
+        # ---------- bind everything into defaults to avoid late-binding ----------
+        def init(off_np=off_np, def_np=def_np,
+                 off_outline=off_outline, def_outline=def_outline,
+                 off_pos=off_pos, def_pos=def_pos,
+                 off_trails=off_trails, def_trails=def_trails,
+                 rb_circle=rb_circle, rb_cross=rb_cross,
+                 qb_circle=qb_circle, qb_dot=qb_dot,
+                 rec_circle=rec_circle, rec_dot=rec_dot):
+            empty_xy = np.empty((0, 2))
+            off_outline.set_offsets(empty_xy)
+            def_outline.set_offsets(empty_xy)
+            off_pos.set_offsets(empty_xy)
+            def_pos.set_offsets(empty_xy)
             for ln in off_trails + def_trails:
                 ln.set_data([], [])
-            return (scat_off, scat_def, star_sc, *off_trails, *def_trails)
+            # clear any pre-existing blobs (when re-running in notebooks)
+            for p in off_blob_patches + def_blob_patches:
+                try:
+                    p.remove()
+                except Exception:
+                    pass
+            off_blob_patches.clear()
+            def_blob_patches.clear()
 
-        def update(frame, off_np=off_np, def_np=def_np, star_idx=star_idx, scat_off=scat_off, scat_def=scat_def, star_sc=star_sc, off_trails=off_trails, def_trails=def_trails):
-            # points
-            scat_off.set_offsets(off_np[frame])
-            scat_def.set_offsets(def_np[frame])
-            star_sc.set_offsets(off_np[frame, star_idx])
-            # trails up to current frame
-            xs_off = off_np[:frame+1, :, 0]
-            ys_off = off_np[:frame+1, :, 1]
-            xs_def = def_np[:frame+1, :, 0]
-            ys_def = def_np[:frame+1, :, 1]
-            for i in range(game.N):
+            # clear highlights
+            rb_circle.set_offsets(empty_xy); rb_cross.set_data([], [])
+            qb_circle.set_offsets(empty_xy); qb_dot.set_offsets(empty_xy)
+            rec_circle.set_offsets(empty_xy); rec_dot.set_offsets(empty_xy)
+            return (
+                off_outline, def_outline, off_pos, def_pos,
+                rb_circle, rb_cross, qb_circle, qb_dot, rec_circle, rec_dot,
+                *off_trails, *def_trails
+            )
+
+        def _add_blobs(ax, centers, mags, cmap, wmax, zorder_list, patch_store):
+            """Create Circle patches (persistent) and add to ax.
+               Fixed-radius blobs; color still reflects magnitude."""
+            if centers.size == 0:
+                return
+            w = np.clip(mags / (wmax + 1e-12), 0.0, 1.0)
+            w_plot = np.power(w, HEAT_GAMMA)
+            # Fixed radius (data units)
+            r = float(R_FIXED)
+            # Colormap colors (avoid white end; set alpha)
+            w_col = HEAT_BASE + (1.0 - HEAT_BASE) * w_plot
+            cols = cmap(w_col)
+            if cols.ndim == 1: cols = cols[None, :]
+            for (x, y), c in zip(centers, cols):
+                color = (float(c[0]), float(c[1]), float(c[2]), HEAT_ALPHA)
+                circ = Circle((float(x), float(y)), radius=r,
+                              facecolor=color, edgecolor='none', zorder=Z_BLOBS)
+                ax.add_patch(circ)
+                patch_store.append(circ)
+
+        def update(frame,
+                   off_np=off_np, def_np=def_np,
+                   off_mags_np=off_mags_np, def_mags_np=def_mags_np,
+                   max_off=max_off, max_def=max_def,
+                   off_outline=off_outline, def_outline=def_outline,
+                   off_pos=off_pos, def_pos=def_pos,
+                   off_trails=off_trails, def_trails=def_trails,
+                   rb_circle=rb_circle, rb_cross=rb_cross,
+                   qb_circle=qb_circle, qb_dot=qb_dot,
+                   rec_circle=rec_circle, rec_dot=rec_dot,
+                   i_star=i_star, RB_IDX=RB_IDX, QB_IDX=QB_IDX, REC_IDX=REC_IDX,
+                   ax_top=ax_top, APPEAR_DELAY=APPEAR_DELAY):
+            # outlines + position dots
+            off_outline.set_offsets(off_np[frame])
+            def_outline.set_offsets(def_np[frame])
+            off_pos.set_offsets(off_np[frame])
+            def_pos.set_offsets(def_np[frame])
+
+            # dotted trails
+            xs_off = off_np[:frame + 1, :, 0]; ys_off = off_np[:frame + 1, :, 1]
+            xs_def = def_np[:frame + 1, :, 0]; ys_def = def_np[:frame + 1, :, 1]
+            for i in range(xs_off.shape[1]):
                 off_trails[i].set_data(xs_off[:, i], ys_off[:, i])
                 def_trails[i].set_data(xs_def[:, i], ys_def[:, i])
-            return (scat_off, scat_def, star_sc, *off_trails, *def_trails)
+
+            # PERSISTENT BLOBS:
+            #   stamp ONLY the frame that just finished (frame - APPEAR_DELAY)
+            t_stamp = frame - APPEAR_DELAY
+            if t_stamp >= 0:
+                _add_blobs(ax_top, off_np[t_stamp], off_mags_np[t_stamp], OFF_CMAP, max_off, Z_BLOBS, off_blob_patches)
+                _add_blobs(ax_top, def_np[t_stamp], def_mags_np[t_stamp], DEF_CMAP, max_def, Z_BLOBS, def_blob_patches)
+
+            # clear highlights
+            empty_xy = np.empty((0, 2))
+            rb_circle.set_offsets(empty_xy); rb_cross.set_data([], [])
+            qb_circle.set_offsets(empty_xy); qb_dot.set_offsets(empty_xy)
+            rec_circle.set_offsets(empty_xy); rec_dot.set_offsets(empty_xy)
+
+            # add highlights for this type/frame
+            if i_star == 0:
+                x, y = off_np[frame, RB_IDX]
+                rb_circle.set_offsets(np.array([[x, y]]))
+                rb_cross.set_data([x], [y])     # visible “×”
+            else:
+                qb_xy = off_np[frame, QB_IDX].reshape(1, 2)
+                qb_circle.set_offsets(qb_xy)
+                qb_dot.set_offsets(qb_xy)
+                if REC_IDX is not None:
+                    rec_xy = off_np[frame, REC_IDX].reshape(1, 2)
+                else:
+                    dists = np.linalg.norm(off_np[frame] - qb_xy[0], axis=1)
+                    rec_guess = int(np.argmax(dists))
+                    rec_xy = off_np[frame, rec_guess].reshape(1, 2)
+                rec_circle.set_offsets(rec_xy)
+                rec_dot.set_offsets(rec_xy)
+
+            # return animated artists (patches live on the Axes)
+            return (
+                off_outline, def_outline, off_pos, def_pos,
+                rb_circle, rb_cross, qb_circle, qb_dot, rec_circle, rec_dot,
+                *off_trails, *def_trails
+            )
 
         ani = animation.FuncAnimation(
             fig, update, frames=T_frames, init_func=init,
-            blit=True, interval=1000 / fps, repeat=False
+            blit=False, interval=1000 / fps, repeat=False
         )
-        # NOTE: we intentionally do not close the figure here to avoid single-frame exports.
 
-        # For notebook display compatibility (optional)
+        # Notebook display helper
         try:
             from IPython.display import HTML
             html = HTML(ani.to_jshtml())
@@ -266,6 +482,326 @@ def visualize_most_likely(
             html = None
 
         outs.append((html, ani))
+
+    # Restore rcParams
+    for k, v in prev_rc.items():
+        if v is not None:
+            plt.rcParams[k] = v
+
+    return outs
+
+
+def visualize_most_likely_old(
+    game: FootballGame,
+    p1_model: CAMSInformed, p1_params,
+    p2_model: BR,           p2_params,
+    *,
+    fps: int = 6,
+):
+    """
+    CPU-only rendering of one rollout per hidden type i★.
+
+    Aesthetics:
+      • Attackers: bold black circle outlines (no fill).
+      • Defenders: bold black square outlines (no fill).
+      • Type 0 (RB push): RB = circle with a cross inside.
+      • Type 1 (QB throws): QB & Receiver = circles with a heavy dot inside.
+      • At each frame, overlay filled circles (no outline) whose color+size encode
+        per-player action magnitude (Reds for attackers, Blues for defenders).
+      • Smooth trajectory lines in matching hues. Clean, publication-ready styling.
+
+    Returns: list of (html, ani)
+    """
+    import numpy as np
+    import jax
+    import jax.numpy as jnp
+    import matplotlib.pyplot as plt
+    from matplotlib import animation
+    from matplotlib.colors import Normalize
+
+    # ------------------------- Styling -------------------------
+    _rc = {
+        "font.size": 10,
+        "axes.titlesize": 12,
+        "axes.labelsize": 10,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "axes.linewidth": 0.8,
+        "figure.dpi": 120,
+    }
+    prev_rc = {k: plt.rcParams.get(k, None) for k in _rc}
+    plt.rcParams.update(_rc)
+
+    OFF_LINE = "#c62828"  # red 800
+    DEF_LINE = "#1565c0"  # blue 800
+    norm = Normalize(vmin=0.0, vmax=1.0)
+
+    # Marker sizing (points^2)
+    S_MIN, S_MAX = 18.0, 110.0
+    S_OUTLINE = 160.0
+    DOT_INSIDE = 36.0
+    CROSS_LW = 1.8
+    OUTLINE_LW = 1.6
+    TRAIL_LW = 1.6
+
+    def _team_action_per_player(u: jnp.ndarray, N: int) -> np.ndarray:
+        """Return per-player L2 magnitudes (N,) from a team action vector."""
+        u = jnp.asarray(u)
+        u = jnp.squeeze(u)  # (..., D) -> (D,)
+        D = int(u.shape[-1]) if u.ndim == 1 else int(u.shape[-1])
+        if D == 2 * N:
+            arr = u.reshape(N, 2)
+        elif (D % N) == 0:
+            arr = u.reshape(N, D // N)
+        else:
+            mag = float(jnp.linalg.norm(u)) / max(N, 1)
+            return np.full((N,), mag, dtype=float)
+        mags = jnp.linalg.norm(arr, axis=1)
+        return np.asarray(mags, dtype=float)
+
+    def _normalize_sizes(mags: np.ndarray, mmax: float) -> np.ndarray:
+        if mmax <= 1e-12:
+            return np.full_like(mags, S_MIN)
+        w = np.clip(mags / mmax, 0.0, 1.0)
+        return S_MIN + w * (S_MAX - S_MIN)
+
+    RB_IDX = getattr(game, "RB_IDX", getattr(game, "BALL_IDX", 0))
+    QB_IDX = getattr(game, "QB_IDX", getattr(game, "BALL_IDX", 0))
+    REC_IDX = None
+    for cand in ("REC_IDX", "WR_IDX", "RECV_IDX"):
+        if hasattr(game, cand):
+            REC_IDX = getattr(game, cand)
+            break
+
+    outs = []
+
+    for i_star in range(game.I):
+        # Reset and set hidden type deterministically
+        state, _ = game.reset(batch_size=1)
+        state = type(state)(
+            x=state.x, t=state.t, p=state.p,
+            i_star=jnp.full((1,), i_star, dtype=jnp.int32),
+            w_last=state.w_last
+        )
+        obs = {"x": state.x, "p": state.p, "t": state.t}
+
+        pos1, _, pos2, _ = _split_state(game, state.x)
+        traj_off = [jnp.array(pos1[0]).copy()]
+        traj_def = [jnp.array(pos2[0]).copy()]
+        p_traj   = [float(state.p[0, 0])]
+        times    = [0.0]
+
+        off_mags_seq = [np.zeros((game.N,), dtype=float)]
+        def_mags_seq = [np.zeros((game.N,), dtype=float)]
+
+        # Rollout under most-likely row j_k for this type
+        for k in range(game.K):
+            out = p1_model.apply({"params": p1_params}, obs, k)
+            A = jax.nn.softmax(out["A_logits"][0], axis=-1)
+            row = A[i_star]
+            j_k = int(jnp.argmax(row))
+
+            mu_tbl = out["μ"][0]            # [J, D_off]
+            u1 = mu_tbl[j_k][None, :]       # (1, D_off)
+            u2 = p2_model.apply({"params": p2_params}, obs, k)
+
+            # Step + Bayes update
+            state, _ = game.step(state, u1, u2)
+            state = type(state)(
+                x=state.x, t=state.t,
+                p=game._bayes_update(state.p, A[None, ...], jnp.array([j_k], dtype=jnp.int32)),
+                i_star=state.i_star, w_last=state.w_last
+            )
+            obs = {"x": state.x, "p": state.p, "t": state.t}
+
+            pos1, _, pos2, _ = _split_state(game, state.x)
+            traj_off.append(jnp.array(pos1[0]).copy())
+            traj_def.append(jnp.array(pos2[0]).copy())
+            p_traj.append(float(state.p[0, 0]))
+            times.append((k + 1) * game.dt)
+
+            off_mags_seq.append(_team_action_per_player(u1, game.N))
+            def_mags_seq.append(_team_action_per_player(u2, game.N))
+
+        # Stacks
+        off_np = np.stack([np.array(t) for t in traj_off], axis=0)  # (T, N, 2)
+        def_np = np.stack([np.array(t) for t in traj_def], axis=0)  # (T, N, 2)
+        off_mags_np = np.stack(off_mags_seq, axis=0)                # (T, N)
+        def_mags_np = np.stack(def_mags_seq, axis=0)                # (T, N)
+        T_frames = off_np.shape[0]
+        max_off = float(np.max(off_mags_np)) if off_mags_np.size else 1.0
+        max_def = float(np.max(def_mags_np)) if def_mags_np.size else 1.0
+
+        # Figure
+        fig, (ax_top, ax_bot) = plt.subplots(
+            2, 1, figsize=(6.5, 8.2), gridspec_kw={"height_ratios": [4, 1]}
+        )
+        for side in ("top", "right"):
+            ax_top.spines[side].set_visible(False)
+            ax_bot.spines[side].set_visible(False)
+
+        ax_top.set_xlim(-game.BOX_POS - 0.2, game.BOX_POS + 0.2)
+        ax_top.set_ylim(-game.BOX_POS - 0.2, game.BOX_POS + 0.2)
+        ax_top.set_aspect("equal")
+        ax_top.set_title(f"Most-likely path – type {i_star}", fontweight="bold")
+        ax_top.set_xlabel("x (field units)")
+        ax_top.set_ylabel("y (field units)")
+
+        # Belief subplot
+        ax_bot.set_xlim(0, game.T)
+        ax_bot.set_ylim(-0.05, 1.05)
+        ax_bot.set_xlabel("time (s)")
+        ax_bot.set_ylabel("belief p[type=0]")
+        ax_bot.plot(times, p_traj, color="#333333", lw=1.6)
+
+        # Trails
+        off_trails = [
+            ax_top.plot([], [], lw=TRAIL_LW, alpha=0.65, color=OFF_LINE, solid_capstyle="round")[0]
+            for _ in range(game.N)
+        ]
+        def_trails = [
+            ax_top.plot([], [], lw=TRAIL_LW, alpha=0.65, color=DEF_LINE, solid_capstyle="round")[0]
+            for _ in range(game.N)
+        ]
+
+        # Outline markers (no fill)
+        off_outline = ax_top.scatter(
+            [], [], s=S_OUTLINE, facecolors="none", edgecolors="black",
+            linewidths=OUTLINE_LW, marker="o"
+        )
+        def_outline = ax_top.scatter(
+            [], [], s=S_OUTLINE, facecolors="none", edgecolors="black",
+            linewidths=OUTLINE_LW, marker="s"
+        )
+
+        # Magnitude-encoded filled circles (no outline)
+        off_mag = ax_top.scatter(
+            [], [], s=None, c=None, cmap=plt.cm.Reds, norm=norm,
+            edgecolors="none", alpha=0.9
+        )
+        def_mag = ax_top.scatter(
+            [], [], s=None, c=None, cmap=plt.cm.Blues, norm=norm,
+            edgecolors="none", alpha=0.9
+        )
+
+        # Highlights
+        rb_circle = ax_top.scatter([], [], s=S_OUTLINE * 1.05, facecolors="none",
+                                   edgecolors="black", linewidths=OUTLINE_LW + 0.2, marker="o")
+        rb_cross  = ax_top.scatter([], [], s=S_OUTLINE * 0.75, c="black",
+                                   marker="x", linewidths=CROSS_LW)
+
+        qb_circle = ax_top.scatter([], [], s=S_OUTLINE * 1.05, facecolors="none",
+                                   edgecolors="black", linewidths=OUTLINE_LW + 0.2, marker="o")
+        qb_dot    = ax_top.scatter([], [], s=DOT_INSIDE, c="black", marker="o", edgecolors="none")
+        rec_circle = ax_top.scatter([], [], s=S_OUTLINE * 1.05, facecolors="none",
+                                    edgecolors="black", linewidths=OUTLINE_LW + 0.2, marker="o")
+        rec_dot    = ax_top.scatter([], [], s=DOT_INSIDE, c="black", marker="o", edgecolors="none")
+
+        # ---------- bind everything into defaults to avoid late-binding ----------
+        def init(off_np=off_np, def_np=def_np,
+                 off_outline=off_outline, def_outline=def_outline,
+                 off_mag=off_mag, def_mag=def_mag,
+                 off_trails=off_trails, def_trails=def_trails,
+                 rb_circle=rb_circle, rb_cross=rb_cross,
+                 qb_circle=qb_circle, qb_dot=qb_dot,
+                 rec_circle=rec_circle, rec_dot=rec_dot):
+            empty_xy = np.empty((0, 2))
+            off_outline.set_offsets(empty_xy)
+            def_outline.set_offsets(empty_xy)
+            off_mag.set_offsets(empty_xy); off_mag.set_array(np.array([])); off_mag.set_sizes([])
+            def_mag.set_offsets(empty_xy); def_mag.set_array(np.array([])); def_mag.set_sizes([])
+            for ln in off_trails + def_trails:
+                ln.set_data([], [])
+            for hl in (rb_circle, rb_cross, qb_circle, qb_dot, rec_circle, rec_dot):
+                hl.set_offsets(empty_xy)
+            return (
+                off_outline, def_outline, off_mag, def_mag,
+                rb_circle, rb_cross, qb_circle, qb_dot, rec_circle, rec_dot,
+                *off_trails, *def_trails
+            )
+
+        def update(frame,
+                   off_np=off_np, def_np=def_np,
+                   off_mags_np=off_mags_np, def_mags_np=def_mags_np,
+                   max_off=max_off, max_def=max_def,
+                   off_outline=off_outline, def_outline=def_outline,
+                   off_mag=off_mag, def_mag=def_mag,
+                   off_trails=off_trails, def_trails=def_trails,
+                   rb_circle=rb_circle, rb_cross=rb_cross,
+                   qb_circle=qb_circle, qb_dot=qb_dot,
+                   rec_circle=rec_circle, rec_dot=rec_dot,
+                   i_star=i_star, RB_IDX=RB_IDX, QB_IDX=QB_IDX, REC_IDX=REC_IDX):
+            # outlines
+            off_outline.set_offsets(off_np[frame])
+            def_outline.set_offsets(def_np[frame])
+
+            # magnitudes
+            off_mag.set_offsets(off_np[frame])
+            def_mag.set_offsets(def_np[frame])
+
+            off_m = off_mags_np[frame]; def_m = def_mags_np[frame]
+            off_w = off_m / (max_off + 1e-12)
+            def_w = def_m / (max_def + 1e-12)
+            off_mag.set_array(off_w)
+            def_mag.set_array(def_w)
+            off_mag.set_sizes(_normalize_sizes(off_m, max_off))
+            def_mag.set_sizes(_normalize_sizes(def_m, max_def))
+
+            # trails
+            xs_off = off_np[:frame + 1, :, 0]; ys_off = off_np[:frame + 1, :, 1]
+            xs_def = def_np[:frame + 1, :, 0]; ys_def = def_np[:frame + 1, :, 1]
+            for i in range(xs_off.shape[1]):
+                off_trails[i].set_data(xs_off[:, i], ys_off[:, i])
+                def_trails[i].set_data(xs_def[:, i], ys_def[:, i])
+
+            # highlights
+            empty_xy = np.empty((0, 2))
+            for hl in (rb_circle, rb_cross, qb_circle, qb_dot, rec_circle, rec_dot):
+                hl.set_offsets(empty_xy)
+
+            if i_star == 0:
+                rb_xy = off_np[frame, RB_IDX].reshape(1, 2)
+                rb_circle.set_offsets(rb_xy)
+                rb_cross.set_offsets(rb_xy)
+            else:
+                qb_xy = off_np[frame, QB_IDX].reshape(1, 2)
+                qb_circle.set_offsets(qb_xy)
+                qb_dot.set_offsets(qb_xy)
+                if REC_IDX is not None:
+                    rec_xy = off_np[frame, REC_IDX].reshape(1, 2)
+                else:
+                    dists = np.linalg.norm(off_np[frame] - qb_xy[0], axis=1)
+                    rec_guess = int(np.argmax(dists))
+                    rec_xy = off_np[frame, rec_guess].reshape(1, 2)
+                rec_circle.set_offsets(rec_xy)
+                rec_dot.set_offsets(rec_xy)
+
+            return (
+                off_outline, def_outline, off_mag, def_mag,
+                rb_circle, rb_cross, qb_circle, qb_dot, rec_circle, rec_dot,
+                *off_trails, *def_trails
+            )
+
+        ani = animation.FuncAnimation(
+            fig, update, frames=T_frames, init_func=init,
+            blit=False, interval=1000 / fps, repeat=False
+        )
+
+        # Notebook display helper
+        try:
+            from IPython.display import HTML
+            html = HTML(ani.to_jshtml())
+        except Exception:
+            html = None
+
+        outs.append((html, ani))
+
+        # (Intentionally not closing the figure to avoid single-frame export.)
+
+    # Restore rcParams
+    for k, v in prev_rc.items():
+        if v is not None:
+            plt.rcParams[k] = v
 
     return outs
 
@@ -378,8 +914,8 @@ def plot_run_jsonl(log_path: str, save_png: str | None = None):
     plt.tight_layout()
     if save_png:
         plt.savefig(save_png, dpi=150)
+    # plt.show() # Uncomment to display plot interactively
     plt.close(fig)
-
 
 # =========================================================
 # Main
@@ -442,7 +978,7 @@ def main():
                 f"wall={stats['wall_ms']:.1f}ms"
             )
 
-        if (epoch % VIS_EVERY) == 0 or (epoch == EPOCHS-1):  # also save last checkpoint + anims
+        if (epoch % VIS_EVERY) == 0 or epoch == EPOCHS-1:
             # 1) save checkpoint BEFORE viz (parity with PyTorch)
             ckpt_path = solver.save_checkpoint(epoch)
             print(f"[ckpt] saved {ckpt_path}")
