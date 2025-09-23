@@ -1,4 +1,4 @@
-# Solving Football via Equilibrium Structure in Two‑Player Zero‑Sum Differential Games with One‑Sided Information
+# Solving Football by Exploiting Equilibrium Structure of 2p0s Differential Games with One-Sided Information
 
 This repository contains code and experiments for solving two-player zero-sum (2p0s) games with one-sided incomplete inforamtion. All methods discussed in the paper are implemented in this repository. 
 
