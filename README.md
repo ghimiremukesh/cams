@@ -88,8 +88,6 @@ python -c "import torch; print('CUDA visible:', torch.cuda.is_available())"
 └── env.yml
 ```
 
-> **Note:** Ensure the actual directory is `visualization_scripts/`, or keep names consistent across code.
-
 ---
 
 ## Quickstart
