@@ -88,7 +88,7 @@ python -c "import torch; print('CUDA visible:', torch.cuda.is_available())"
 └── env.yml
 ```
 
-> **Note:** Some notes may reference `visualization_scipts/` (typo). Ensure the actual directory is `visualization_scripts/`, or keep names consistent across code and docs.
+> **Note:** Ensure the actual directory is `visualization_scripts/`, or keep names consistent across code.
 
 ---
 
