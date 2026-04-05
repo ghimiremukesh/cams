@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Solving Football by Exploiting Equilibrium Structure of 2p0s Differential Games with One-Sided Information</title>
+  <meta name="description" content="Project page for the ICLR 2026 paper on one-sided incomplete-information differential games and football simulations." />
+  <style>
+    :root {
+      --text: #111;
+      --muted: #555;
+      --line: #ddd;
+      --bg: #fff;
+      --panel: #fafafa;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.65;
+    }
+
+    .page {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+    }
+
+    .hero {
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .venue {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 0.95rem;
+      letter-spacing: 0.02em;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: clamp(1.9rem, 4vw, 3rem);
+      line-height: 1.15;
+    }
+
+    .authors,
+    .affiliations {
+      margin: 0 0 8px;
+      font-size: 1.02rem;
+    }
+
+    .affiliations,
+    .note,
+    footer {
+      color: var(--muted);
+    }
+
+    .links,
+    .toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .button,
+    .toc a {
+      display: inline-block;
+      padding: 8px 12px;
+      border: 1px solid var(--text);
+      border-radius: 6px;
+      color: var(--text);
+      text-decoration: none;
+      background: #fff;
+    }
+
+    .button:hover,
+    .toc a:hover {
+      background: #111;
+      color: #fff;
+    }
+
+    section {
+      margin-top: 40px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 1.45rem;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    p {
+      margin: 0 0 16px;
+    }
+
+    .results {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      background: #fff;
+    }
+
+    .card h3 {
+      margin: 0 0 12px;
+      font-size: 1.15rem;
+    }
+
+    .media-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    figure {
+      margin: 0;
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid #e9e9e9;
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    figcaption {
+      margin-top: 6px;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+
+    .note {
+      font-size: 0.95rem;
+    }
+
+    .citation {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      overflow-x: auto;
+      font-size: 0.94rem;
+    }
+
+    code,
+    pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre;
+    }
+
+    footer {
+      margin-top: 48px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      font-size: 0.95rem;
+    }
+
+    @media (min-width: 760px) {
+      .media-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!--
+    If you want this page to be fully self-hosted later,
+    copy these four GIFs into a local assets/ folder and replace the URLs below:
+      assets/type00.gif
+      assets/type00_belief.gif
+      assets/type01.gif
+      assets/type01_belief.gif
+  -->
+
+  <main class="page">
+    <header class="hero">
+      <p class="venue">ICLR 2026 Poster</p>
+      <h1>Solving Football by Exploiting Equilibrium Structure of 2p0s Differential Games with One-Sided Information</h1>
+      <p class="authors">Mukesh Ghimire<sup>1</sup>, Lei Zhang<sup>2</sup>, Zhe Xu<sup>1</sup>, Yi Ren<sup>1</sup></p>
+      <p class="affiliations"><sup>1</sup>Arizona State University &nbsp; <sup>2</sup>Purdue University</p>
+
+      <div class="links">
+        <a class="button" href="https://arxiv.org/pdf/2502.00560" target="_blank" rel="noopener">Paper PDF</a>
+        <a class="button" href="https://openreview.net/forum?id=vRwuBOxbsJ" target="_blank" rel="noopener">OpenReview</a>
+        <a class="button" href="https://arxiv.org/abs/2502.00560" target="_blank" rel="noopener">arXiv</a>
+        <a class="button" href="https://github.com/ghimiremukesh/cams/tree/iclr" target="_blank" rel="noopener">Code</a>
+      </div>
+
+      <div class="toc">
+        <a href="#overview">Overview</a>
+        <a href="#abstract">Abstract</a>
+        <a href="#animations">Animations</a>
+        <a href="#citation">Citation</a>
+      </div>
+    </header>
+
+    <section id="overview">
+      <h2>Overview</h2>
+      <p>
+        We study a class of two-player zero-sum differential games with one-sided information, where the informed player knows the payoff type and the uninformed player maintains a public belief over possible types. The main result is that equilibrium strategies collapse to a small set of action prototypes, which dramatically reduces effective game-tree complexity.
+      </p>
+      <p>
+        This structure makes large continuous-action games practical to solve. In the football demonstration, the method solves a 22-player game with continuous actions and 10 time steps, where the offense benefits from concealing the true play until a critical moment.
+      </p>
+    </section>
+
+    <section id="abstract">
+      <h2>Abstract</h2>
+      <p>
+        For a two-player imperfect-information extensive-form game (IIEFG) with <em>K</em> time steps and action-space size <em>U</em>, the game tree complexity is <em>U</em><sup>2K</sup>, which makes existing IIEFG solvers struggle when <em>U</em> or <em>K</em> is large or infinite, as in differential games with continuous actions. We focus on an important class of two-player zero-sum games where the informed player (P1) knows the payoff while the uninformed player (P2) only has a belief over <em>I</em> possible payoffs. Under mild conditions, P1’s equilibrium strategy concentrates on at most <em>I</em> action prototypes, while P2’s concentrates on at most <em>I</em>+1 prototypes.
+      </p>
+      <p>
+        When <em>I</em> is much smaller than <em>U</em>, this collapses the effective game tree to <em>I</em><sup>K</sup> for P1 and (<em>I</em>+1)<sup>K</sup> for P2 in the dual game. Exploiting this structure in model-free multiagent reinforcement learning and model predictive control leads to strong improvements in accuracy and efficiency over prior IIEFG solvers, including the 22-player football example shown below.
+      </p>
+    </section>
+
+    <section id="animations">
+      <h2>Animations</h2>
+      <p class="note">
+        Results for the 22-player football simulation, where the offense (P1) has one of two possible payoff types (QB Power Run/Push or QB Throw) and the defense (P2) maintains a belief over these types. The method recovers two distinct equilibrium strategies that align with known football play strategies, demonstrating the practical impact of exploiting equilibrium structure in complex games.
+      </p>
+
+      <div class="results">
+        <article class="card">
+          <h3>QB Power Run / Push</h3>
+          <div class="media-grid">
+            <figure>
+              <img
+                src="https://raw.githubusercontent.com/ghimiremukesh/cams/iclr/MPC/simulations/type00.gif"
+                alt="Trajectory animation for QB Power Run or Push"
+                loading="lazy"
+              />
+              <figcaption>Trajectory rollout</figcaption>
+            </figure>
+            <figure>
+              <img
+                src="https://raw.githubusercontent.com/ghimiremukesh/cams/iclr/MPC/simulations/type00_belief.gif"
+                alt="Belief evolution for QB Power Run or Push"
+                loading="lazy"
+              />
+              <figcaption>Belief evolution</figcaption>
+            </figure>
+          </div>
+          <p>Recovers a notable Inside Zone play strategy in football.</p>
+        </article>
+
+        <article class="card">
+          <h3>QB Throw</h3>
+          <div class="media-grid">
+            <figure>
+              <img
+                src="https://raw.githubusercontent.com/ghimiremukesh/cams/iclr/MPC/simulations/type01.gif"
+                alt="Trajectory animation for QB Throw"
+                loading="lazy"
+              />
+              <figcaption>Trajectory rollout</figcaption>
+            </figure>
+            <figure>
+              <img
+                src="https://raw.githubusercontent.com/ghimiremukesh/cams/iclr/MPC/simulations/type01_belief.gif"
+                alt="Belief evolution for QB Throw"
+                loading="lazy"
+              />
+              <figcaption>Belief evolution</figcaption>
+            </figure>
+          </div>
+          <p>Recovers a notable Naked Bootleg Right strategy in football.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="citation">
+      <h2>Citation</h2>
+      <div class="citation">
+<pre>@inproceedings{ghimire2026solvingfootball,
+  title     = {Solving Football by Exploiting Equilibrium Structure of 2p0s Differential Games with One-Sided Information},
+  author    = {Mukesh Ghimire and Lei Zhang and Zhe Xu and Yi Ren},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2026},
+  url       = {https://openreview.net/forum?id=vRwuBOxbsJ}
+}</pre>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
