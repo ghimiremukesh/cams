@@ -1,0 +1,13 @@
+# Academic Non-Commercial LICENSE File
+Copyright (c) 2026 Mukesh Ghimire, Zhe Xu, and Yi Ren. All rights reserved.
+This software and its associated source code are provided strictly for academic, educational, and research purposes.
+PERMITTED USE:
+Permission is hereby granted to individuals and institutions to download, compile, execute, and use this software for non-commercial academic research, peer review, verification, and reproduction of the results published in the following paper:
+"Solving Football by Exploiting Equilibrium Structure of 2P0S Differential Games with One-Sided Information" (Published as a conference paper at ICLR 2026).
+PROHIBITIONS:
+
+   1. COMMERCIAL USE: This software, its source code, and any derivative works or structural components MAY NOT be used, corporate-sponsored, or exploited for any commercial purpose, commercial product development, or financial gain.
+   2. DISTRIBUTION: No right to distribute, modify for public redistribution, sub-license, or sell this software is granted without explicit prior written consent from the copyright holders.
+   3. ATTRIBUTION: Any academic publication or research project that utilizes, references, or builds upon this software or its equilibrium structures must prominently cite the original publication listed above.
+
+This license must remain intact and prominently displayed in all copies of the source code.
